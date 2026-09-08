@@ -1,9 +1,6 @@
 # Novera CI — typecheck, lint, schema push, tests.
 #
 # Notes:
-# - tests/ is an in-flight workstream (Task 2-a). `--passWithNoTests` keeps
-#   this workflow green until the suite lands; remove the flag once the
-#   suite is real so a missing/misconfigured suite fails loudly.
 # - The suite bootstraps its own SQLite db (tests/global-setup.ts →
 #   db/test.db); the DATABASE_URL env below is a process default/fallback,
 #   not the file the suite ultimately uses.
