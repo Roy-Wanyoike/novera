@@ -50,6 +50,6 @@ jobs:
         run: DATABASE_URL=file:./db/ci.db bunx prisma db push --skip-generate
 
       - name: Run tests
-        run: bunx vitest run --passWithNoTests
+        run: bunx vitest run
         env:
           DATABASE_URL: file:./db/ci.db
