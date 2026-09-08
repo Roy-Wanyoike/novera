@@ -1,0 +1,348 @@
+examples/websocket/frontend.tsx(4,20): error TS2307: Cannot find module 'socket.io-client' or its corresponding type declarations.
+examples/websocket/server.ts(2,24): error TS2307: Cannot find module 'socket.io' or its corresponding type declarations.
+packages/money/src/index.ts(71,28): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(96,25): error TS2345: Argument of type 'string' is not assignable to parameter of type 'CurrencyCode'.
+packages/money/src/index.ts(100,28): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(121,45): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(121,50): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(152,45): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(153,47): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(154,47): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(156,48): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(174,21): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(177,28): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(179,35): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(180,36): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(195,21): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(206,23): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(207,57): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(208,19): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(211,23): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(212,57): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+packages/money/src/index.ts(213,19): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed-helpers.ts(36,66): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed-helpers.ts(37,80): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed-helpers.ts(41,54): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed-helpers.ts(42,5): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed-helpers.ts(53,22): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed-helpers.ts(111,46): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed-helpers.ts(111,75): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed-helpers.ts(299,40): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed-helpers.ts(320,20): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(56,201): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(122,54): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(123,51): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(156,7): error TS2345: Argument of type '{ name: string; id: string; email: string | null; createdAt: Date; updatedAt: Date; organizationId: string; country: string; phone: string | null; riskTier: string; }' is not assignable to parameter of type 'never'.
+prisma/seed.ts(182,123): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(254,46): error TS2339: Property 'id' does not exist on type 'never'.
+prisma/seed.ts(263,19): error TS2345: Argument of type '{ number: string; id: string; status: string; createdAt: Date; updatedAt: Date; organizationId: string; currency: string; customerId: string; subtotalMinor: bigint; taxMinor: bigint; ... 9 more ...; lastReminderAt: Date | null; }' is not assignable to parameter of type 'never'.
+prisma/seed.ts(299,76): error TS2339: Property 'status' does not exist on type 'never'.
+prisma/seed.ts(309,27): error TS2339: Property 'id' does not exist on type 'never'.
+prisma/seed.ts(310,49): error TS2339: Property 'number' does not exist on type 'never'.
+prisma/seed.ts(321,5): error TS2345: Argument of type '{ id: string; status: string; createdAt: Date; updatedAt: Date; organizationId: string; type: string; label: string; currency: string; walletId: string | null; brand: string; last4: string; ... 16 more ...; lastUsedAt: Date | null; }' is not assignable to parameter of type 'never'.
+prisma/seed.ts(323,58): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(323,74): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(323,93): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(328,5): error TS2345: Argument of type '{ id: string; status: string; createdAt: Date; updatedAt: Date; organizationId: string; type: string; label: string; currency: string; walletId: string | null; brand: string; last4: string; ... 16 more ...; lastUsedAt: Date | null; }' is not assignable to parameter of type 'never'.
+prisma/seed.ts(330,63): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(330,80): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(335,5): error TS2345: Argument of type '{ id: string; status: string; createdAt: Date; updatedAt: Date; organizationId: string; type: string; label: string; currency: string; walletId: string | null; brand: string; last4: string; ... 16 more ...; lastUsedAt: Date | null; }' is not assignable to parameter of type 'never'.
+prisma/seed.ts(337,59): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(337,75): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(337,93): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(343,54): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(343,70): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(351,77): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(351,86): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(351,93): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(352,67): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(353,76): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(354,78): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(355,70): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(356,80): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(357,75): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(358,75): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(362,32): error TS2339: Property 'id' does not exist on type 'never'.
+prisma/seed.ts(371,121): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(373,121): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(375,69): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(377,5): error TS2741: Property 'type' is missing in type '{ id: string; label: string; }' but required in type '{ type: "AGENT" | "USER" | "SYSTEM"; id?: string | undefined; label?: string | undefined; }'.
+prisma/seed.ts(387,33): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(387,59): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(387,97): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(399,90): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(409,35): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(435,55): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(441,55): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(453,55): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(462,55): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(471,60): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+prisma/seed.ts(490,18): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+scratch-inspect.ts(10,77): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+scratch-inspect.ts(11,78): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+scratch-inspect2.ts(17,52): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+scratch-inspect2.ts(17,59): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+skills/image-edit/scripts/image-edit.ts(10,4): error TS2561: Object literal may only specify known properties, but 'images' does not exist in type 'CreateImageEditBody'. Did you mean to write 'image'?
+skills/stock-analysis-skill/src/analyzer.ts(253,11): error TS2322: Type '({ type: string; image: { type: "base64"; data: string; mediaType: "image/png"; url?: undefined; } | { type: "url"; url: string; data?: undefined; mediaType?: undefined; }; } | { type: string; text: string; })[]' is not assignable to type 'string'.
+src/app/(app)/agents/[id]/intent-simulator.tsx(83,27): error TS18048: 'result.status' is possibly 'undefined'.
+src/app/(app)/agents/[id]/page.tsx(317,59): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/agents/actions.ts(112,9): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/agents/page.tsx(55,78): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/agents/page.tsx(198,61): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/approvals/page.tsx(78,83): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/cards/page.tsx(32,55): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/chat.tsx(207,21): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(...items: ConcatArray<CopilotChatMessage>[]): CopilotChatMessage[]', gave the following error.
+    Argument of type 'CopilotChatMessage | undefined' is not assignable to parameter of type 'ConcatArray<CopilotChatMessage>'.
+      Type 'undefined' is not assignable to type 'ConcatArray<CopilotChatMessage>'.
+  Overload 2 of 2, '(...items: (CopilotChatMessage | ConcatArray<CopilotChatMessage>)[]): CopilotChatMessage[]', gave the following error.
+    Argument of type 'CopilotChatMessage | undefined' is not assignable to parameter of type 'CopilotChatMessage | ConcatArray<CopilotChatMessage>'.
+      Type 'undefined' is not assignable to type 'CopilotChatMessage | ConcatArray<CopilotChatMessage>'.
+src/app/(app)/copilot/page.tsx(49,14): error TS2339: Property 'label' does not exist on type 'never'.
+src/app/(app)/copilot/page.tsx(50,13): error TS2339: Property 'type' does not exist on type 'never'.
+src/app/(app)/copilot/page.tsx(51,17): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/copilot/page.tsx(52,23): error TS2339: Property 'availableMinor' does not exist on type 'never'.
+src/app/(app)/copilot/tools.ts(91,53): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(91,68): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(120,15): error TS2345: Argument of type '{ wallet: string; type: string; status: string; currency: string; ledgerMinor: string; ledgerFormatted: string; availableMinor: string; availableFormatted: string; reservedMinor: string; }' is not assignable to parameter of type 'never'.
+src/app/(app)/copilot/tools.ts(157,20): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(159,69): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(259,63): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(268,98): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(280,58): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(290,29): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(346,63): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(393,63): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(434,49): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(434,62): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(442,49): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(442,62): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(444,30): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/copilot/tools.ts(446,48): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/customers/customers-view.tsx(389,34): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/customers/page.tsx(74,16): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/customers/page.tsx(76,49): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/dashboard/page.tsx(191,15): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/dashboard/page.tsx(192,17): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/dashboard/page.tsx(225,61): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/dashboard/page.tsx(231,56): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/dashboard/page.tsx(237,15): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/dashboard/page.tsx(244,40): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(244,63): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/dashboard/page.tsx(244,78): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/dashboard/page.tsx(245,23): error TS2339: Property 'ledgerBalanceMinor' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(246,26): error TS2339: Property 'availableMinor' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(248,26): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(310,26): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/dashboard/page.tsx(315,59): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/dashboard/page.tsx(419,31): error TS2339: Property 'id' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(422,55): error TS2339: Property 'label' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(424,30): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(429,35): error TS2339: Property 'type' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(434,43): error TS2339: Property 'availableMinor' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(434,82): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(438,36): error TS2339: Property 'ledgerBalanceMinor' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(439,39): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(445,28): error TS2339: Property 'reservedMinor' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(445,44): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/dashboard/page.tsx(449,40): error TS2339: Property 'reservedMinor' does not exist on type 'never'.
+src/app/(app)/dashboard/page.tsx(450,43): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/developers/webhooks/page.tsx(6,68): error TS2307: Cannot find module './_components/webhooks-client' or its corresponding type declarations.
+src/app/(app)/fx/fx-convert-card.tsx(298,36): error TS2367: This comparison appears to be unintentional because the types '"quoted"' and '"executing"' have no overlap.
+src/app/(app)/fx/fx-convert-card.tsx(300,16): error TS2367: This comparison appears to be unintentional because the types '"quoted"' and '"executing"' have no overlap.
+src/app/(app)/fx/fx-convert-card.tsx(301,16): error TS2367: This comparison appears to be unintentional because the types '"quoted"' and '"executing"' have no overlap.
+src/app/(app)/fx/fx-convert-card.tsx(303,87): error TS2367: This comparison appears to be unintentional because the types '"quoted"' and '"executing"' have no overlap.
+src/app/(app)/fx/page.tsx(58,22): error TS2339: Property 'status' does not exist on type 'never'.
+src/app/(app)/fx/page.tsx(60,13): error TS2339: Property 'id' does not exist on type 'never'.
+src/app/(app)/fx/page.tsx(61,16): error TS2339: Property 'label' does not exist on type 'never'.
+src/app/(app)/fx/page.tsx(62,19): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/fx/page.tsx(63,25): error TS2339: Property 'availableMinor' does not exist on type 'never'.
+src/app/(app)/fx/rate-format.ts(16,18): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/fx/rate-format.ts(17,20): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/fx/rate-format.ts(19,39): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/fx/rate-format.ts(19,64): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/fx/rate-format.ts(20,30): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/[id]/invoice-actions.tsx(178,52): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/[id]/page.tsx(129,91): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/[id]/page.tsx(345,43): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/[id]/page.tsx(373,45): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/actions.ts(68,19): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/actions.ts(72,19): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/actions.ts(72,52): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/actions.ts(147,70): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/actions.ts(148,25): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/actions.ts(158,25): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/actions.ts(190,28): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/new-invoice-dialog.tsx(53,29): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/new-invoice-dialog.tsx(54,30): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/new-invoice-dialog.tsx(55,22): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/new-invoice-dialog.tsx(55,28): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/new-invoice-dialog.tsx(55,48): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/new-invoice-dialog.tsx(77,20): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/new-invoice-dialog.tsx(95,28): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/new-invoice-dialog.tsx(95,63): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/new-invoice-dialog.tsx(96,35): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/new-invoice-dialog.tsx(99,19): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/new-invoice-dialog.tsx(100,33): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/new-invoice-dialog.tsx(406,78): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/new-invoice-dialog.tsx(414,78): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/page.tsx(86,74): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/page.tsx(293,60): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/status.ts(48,26): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/invoices/status.ts(49,49): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/layout.tsx(14,78): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/payment-links/page.tsx(73,101): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/payment-links/page.tsx(75,61): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/payment-links/page.tsx(160,48): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/payments/[id]/page.tsx(160,33): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/payments/[id]/page.tsx(325,44): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/payments/actions.ts(164,46): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/payments/page.tsx(89,71): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/payments/page.tsx(90,30): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/payments/page.tsx(98,57): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/payments/page.tsx(98,87): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/payments/page.tsx(100,33): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/payments/page.tsx(264,43): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/risk/page.tsx(133,31): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.
+  Type 'null' is not assignable to type 'string'.
+src/app/(app)/risk/page.tsx(134,28): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.
+  Type 'null' is not assignable to type 'string'.
+src/app/(app)/risk/page.tsx(283,57): error TS2345: Argument of type '{}' is not assignable to parameter of type 'string'.
+src/app/(app)/transactions/transactions-table.tsx(45,50): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/transactions/transactions-table.tsx(45,58): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(64,36): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(64,63): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(65,27): error TS2339: Property 'ledgerBalanceMinor' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(67,22): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(72,57): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(86,23): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(91,16): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(94,29): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(95,30): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(96,31): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(97,27): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(110,83): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(111,56): error TS2339: Property 'reservedMinor' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(111,71): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(136,23): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(138,24): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(170,51): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(170,83): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(171,52): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(173,44): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(185,62): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(186,64): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(187,66): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(188,58): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(240,59): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(356,42): error TS2339: Property 'id' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(359,64): error TS2339: Property 'label' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(360,78): error TS2339: Property 'type' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(363,34): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(364,34): error TS2339: Property 'status' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(364,64): error TS2339: Property 'status' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(368,49): error TS2339: Property 'ledgerBalanceMinor' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(368,92): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(372,40): error TS2339: Property 'reservedMinor' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(373,43): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(374,40): error TS2339: Property 'reservedMinor' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(374,58): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(378,49): error TS2339: Property 'availableMinor' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(378,88): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(386,38): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/treasury/page.tsx(537,46): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/treasury/page.tsx(538,43): error TS2339: Property 'label' does not exist on type 'never'.
+src/app/(app)/wallets/[id]/page.tsx(83,38): error TS2339: Property 'id' does not exist on type 'never'.
+src/app/(app)/wallets/[id]/page.tsx(84,31): error TS2339: Property 'ledgerBalanceMinor' does not exist on type 'never'.
+src/app/(app)/wallets/[id]/page.tsx(85,34): error TS2339: Property 'availableMinor' does not exist on type 'never'.
+src/app/(app)/wallets/[id]/page.tsx(105,11): error TS2339: Property 'id' does not exist on type 'never'.
+src/app/(app)/wallets/[id]/page.tsx(106,14): error TS2339: Property 'label' does not exist on type 'never'.
+src/app/(app)/wallets/[id]/page.tsx(107,13): error TS2339: Property 'type' does not exist on type 'never'.
+src/app/(app)/wallets/[id]/page.tsx(108,17): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/wallets/[id]/page.tsx(109,15): error TS2339: Property 'status' does not exist on type 'never'.
+src/app/(app)/wallets/[id]/page.tsx(110,23): error TS2339: Property 'availableMinor' does not exist on type 'never'.
+src/app/(app)/wallets/actions.ts(100,24): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/wallets/page.tsx(25,11): error TS2339: Property 'id' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(26,14): error TS2339: Property 'label' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(27,13): error TS2339: Property 'type' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(28,17): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(29,15): error TS2339: Property 'status' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(30,20): error TS2339: Property 'description' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(31,18): error TS2339: Property 'createdAt' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(32,27): error TS2339: Property 'ledgerBalanceMinor' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(33,23): error TS2339: Property 'availableMinor' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(34,22): error TS2339: Property 'reservedMinor' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(40,28): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(40,51): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/wallets/page.tsx(40,65): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/wallets/page.tsx(40,80): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/(app)/wallets/page.tsx(41,19): error TS2339: Property 'ledgerBalanceMinor' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(42,21): error TS2339: Property 'reservedMinor' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(43,22): error TS2339: Property 'availableMinor' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(44,18): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/(app)/wallets/page.tsx(51,49): error TS2339: Property 'status' does not exist on type 'never'.
+src/app/(app)/wallets/wallet-card.tsx(99,50): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/api/copilot/route.ts(246,11): error TS2322: Type 'ToolResult | { note: string; platform: string; } | null' is not assignable to type 'ToolResult | { note: string; platform: string; }'.
+  Type 'null' is not assignable to type 'ToolResult | { note: string; platform: string; }'.
+src/app/api/v1/balances/route.ts(18,36): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/api/v1/balances/route.ts(18,64): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/api/v1/balances/route.ts(18,84): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/app/api/v1/balances/route.ts(19,28): error TS2339: Property 'ledgerBalanceMinor' does not exist on type 'never'.
+src/app/api/v1/balances/route.ts(20,31): error TS2339: Property 'availableMinor' does not exist on type 'never'.
+src/app/api/v1/balances/route.ts(22,24): error TS2339: Property 'currency' does not exist on type 'never'.
+src/app/api/v1/invoices/route.ts(19,30): error TS2345: Argument of type '(inv: { customer: { name: string; id: string; email: string | null; createdAt: Date; updatedAt: Date; organizationId: string; country: string; phone: string | null; riskTier: string; }; } & { ...; }) => { ...; }' is not assignable to parameter of type '(value: { customer: { name: string; id: string; email: string | null; }; } & { number: string; id: string; status: string; createdAt: Date; updatedAt: Date; organizationId: string; currency: string; ... 12 more ...; lastReminderAt: Date | null; }, index: number, array: ({ ...; } & { ...; })[]) => { ...; }'.
+  Types of parameters 'inv' and 'value' are incompatible.
+    Type '{ customer: { name: string; id: string; email: string | null; }; } & { number: string; id: string; status: string; createdAt: Date; updatedAt: Date; organizationId: string; currency: string; ... 12 more ...; lastReminderAt: Date | null; }' is not assignable to type '{ customer: { name: string; id: string; email: string | null; createdAt: Date; updatedAt: Date; organizationId: string; country: string; phone: string | null; riskTier: string; }; } & { ...; }'.
+      Type '{ customer: { name: string; id: string; email: string | null; }; } & { number: string; id: string; status: string; createdAt: Date; updatedAt: Date; organizationId: string; currency: string; ... 12 more ...; lastReminderAt: Date | null; }' is not assignable to type '{ customer: { name: string; id: string; email: string | null; createdAt: Date; updatedAt: Date; organizationId: string; country: string; phone: string | null; riskTier: string; }; }'.
+        Types of property 'customer' are incompatible.
+          Type '{ name: string; id: string; email: string | null; }' is missing the following properties from type '{ name: string; id: string; email: string | null; createdAt: Date; updatedAt: Date; organizationId: string; country: string; phone: string | null; riskTier: string; }': createdAt, updatedAt, organizationId, country, and 2 more.
+src/app/api/v1/transactions/route.ts(31,30): error TS2345: Argument of type '(t: { entries: ({ account: { name: string; id: string; createdAt: Date; organizationId: string; type: string; currency: string | null; code: string; normalBalance: string; isSystemAccount: boolean; }; } & { ...; })[]; } & { ...; }) => { ...; }' is not assignable to parameter of type '(value: { entries: ({ account: { name: string; type: string; code: string; isSystemAccount: boolean; }; } & { id: string; currency: string; amountMinor: bigint; direction: string; transactionId: string; accountId: string; })[]; } & { ...; }, index: number, array: ({ ...; } & { ...; })[]) => { ...; }'.
+  Types of parameters 't' and 'value' are incompatible.
+    Type '{ entries: ({ account: { name: string; type: string; code: string; isSystemAccount: boolean; }; } & { id: string; currency: string; amountMinor: bigint; direction: string; transactionId: string; accountId: string; })[]; } & { ...; }' is not assignable to type '{ entries: ({ account: { name: string; id: string; createdAt: Date; organizationId: string; type: string; currency: string | null; code: string; normalBalance: string; isSystemAccount: boolean; }; } & { ...; })[]; } & { ...; }'.
+      Type '{ entries: ({ account: { name: string; type: string; code: string; isSystemAccount: boolean; }; } & { id: string; currency: string; amountMinor: bigint; direction: string; transactionId: string; accountId: string; })[]; } & { ...; }' is not assignable to type '{ entries: ({ account: { name: string; id: string; createdAt: Date; organizationId: string; type: string; currency: string | null; code: string; normalBalance: string; isSystemAccount: boolean; }; } & { ...; })[]; }'.
+        Types of property 'entries' are incompatible.
+          Type '({ account: { name: string; type: string; code: string; isSystemAccount: boolean; }; } & { id: string; currency: string; amountMinor: bigint; direction: string; transactionId: string; accountId: string; })[]' is not assignable to type '({ account: { name: string; id: string; createdAt: Date; organizationId: string; type: string; currency: string | null; code: string; normalBalance: string; isSystemAccount: boolean; }; } & { ...; })[]'.
+            Type '{ account: { name: string; type: string; code: string; isSystemAccount: boolean; }; } & { id: string; currency: string; amountMinor: bigint; direction: string; transactionId: string; accountId: string; }' is not assignable to type '{ account: { name: string; id: string; createdAt: Date; organizationId: string; type: string; currency: string | null; code: string; normalBalance: string; isSystemAccount: boolean; }; } & { ...; }'.
+              Type '{ account: { name: string; type: string; code: string; isSystemAccount: boolean; }; } & { id: string; currency: string; amountMinor: bigint; direction: string; transactionId: string; accountId: string; }' is not assignable to type '{ account: { name: string; id: string; createdAt: Date; organizationId: string; type: string; currency: string | null; code: string; normalBalance: string; isSystemAccount: boolean; }; }'.
+                Types of property 'account' are incompatible.
+                  Type '{ name: string; type: string; code: string; isSystemAccount: boolean; }' is missing the following properties from type '{ name: string; id: string; createdAt: Date; organizationId: string; type: string; currency: string | null; code: string; normalBalance: string; isSystemAccount: boolean; }': id, createdAt, organizationId, currency, normalBalance
+src/app/api/v1/wallets/route.ts(22,17): error TS2345: Argument of type '{ id: string; label: string; type: string; currency: string; status: string; description: string | null; ledgerMinor: string; createdAt: string; }' is not assignable to parameter of type 'never'.
+src/lib/fx.ts(21,8): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/fx.ts(22,8): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/fx.ts(23,8): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/fx.ts(24,8): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/fx.ts(25,8): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/fx.ts(26,8): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/fx.ts(27,8): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/fx.ts(28,8): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/fx.ts(29,9): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/fx.ts(34,39): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/fx.ts(35,41): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/fx.ts(37,23): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/fx.ts(41,58): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/ledger.ts(64,26): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/ledger.ts(69,57): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/ledger.ts(69,69): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/ledger.ts(117,44): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/ledger.ts(290,88): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/ledger.ts(291,90): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/ledger.ts(336,90): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/ledger.ts(337,92): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/ledger.ts(369,88): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/ledger.ts(370,90): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/ledger.ts(373,66): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/ledger.ts(374,68): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/payments.ts(92,9): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/payments.ts(94,59): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/payments.ts(95,11): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/payments.ts(275,21): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/payments.ts(366,22): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/payments.ts(391,22): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/payments.ts(426,42): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/payments.ts(429,28): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/payments.ts(494,61): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/payments.ts(495,25): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/transfers.ts(39,62): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/transfers.ts(45,28): error TS2737: BigInt literals are not available when targeting lower than ES2020.
+src/lib/transfers.ts(124,14): error TS2345: Argument of type '{ ledgerBalanceMinor: bigint; availableMinor: bigint; reservedMinor: bigint; formatted: string; id: string; status: string; createdAt: Date; updatedAt: Date; organizationId: string; type: string; label: string; currency: string; description: string | null; ledgerAccountId: string; }' is not assignable to parameter of type 'never'.
+tsc exit code: 2

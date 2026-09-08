@@ -1,0 +1,847 @@
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  NOVERA — Programmable Financial Infrastructure                   ║
+// ║  Financial Kernel Schema (SQLite reference build)                 ║
+// ║                                                                    ║
+// ║  Rules encoded here (per engineering directive):                   ║
+// ║  • All money is integer minor units (BigInt) — never floats        ║
+// ║  • Double-entry ledger: every transaction balances debits=credits  ║
+// ║  • Posted ledger records are immutable — corrections via reversal  ║
+// ║  • Every money-changing operation carries an idempotency key       ║
+// ║  • SQLite build uses String status fields; domain unions in        ║
+// ║    @novera/domain enforce legal state transitions in TypeScript    ║
+// ║  • Production target: PostgreSQL 18 (same model, native enums)     ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// IDENTITY & TENANCY
+// ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  avatarColor  String   @default("#34d399")
+  status       String   @default("ACTIVE") // ACTIVE | SUSPENDED
+  mfaEnabled   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships Membership[]
+  sessions    Session[]
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  type      String   @default("BUSINESS") // BUSINESS | MERCHANT | PLATFORM | CONSUMER
+  country   String   @default("KE")
+  mode      String   @default("TEST") // TEST | LIVE — sandbox separation is explicit
+  status    String   @default("ACTIVE")
+  timezone  String   @default("Africa/Nairobi")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships          Membership[]
+  wallets              Wallet[]
+  ledgerAccounts       LedgerAccount[]
+  ledgerTransactions   LedgerTransaction[]
+  holds                Hold[]
+  customers            Customer[]
+  payments             Payment[]
+  paymentLinks         PaymentLink[]
+  invoices             Invoice[]
+  cards                Card[]
+  agents               Agent[]
+  approvalRequests     ApprovalRequest[]
+  agentIntents         AgentIntent[]
+  splitRules           SplitRule[]
+  splitRuleExecutions  SplitRuleExecution[]
+  policies             Policy[]
+  riskRules            RiskRule[]
+  riskEvaluations      RiskEvaluation[]
+  apiKeys              ApiKey[]
+  apiRequestLogs       ApiRequestLog[]
+  webhookEndpoints     WebhookEndpoint[]
+  webhookDeliveries    WebhookDelivery[]
+  fxQuotes             FxQuote[]
+  copilotMessages      CopilotMessage[]
+  reconciliationCases  ReconciliationCase[]
+  settlementAccounts   SettlementAccount[]
+}
+
+model Membership {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  role           String   @default("MEMBER") // OWNER | ADMIN | FINANCE | DEVELOPER | MEMBER | VIEWER
+  createdAt      DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+model Session {
+  id                  String   @id @default(cuid())
+  userId              String
+  token               String   @unique
+  activeOrganizationId String?
+  ip                  String?
+  userAgent           String?
+  createdAt           DateTime @default(now())
+  expiresAt           DateTime
+  revokedAt           DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// FINANCIAL KERNEL — Wallets, Accounts, Double-Entry Ledger
+// ─────────────────────────────────────────────────────────────────────
+
+model Wallet {
+  id              String   @id @default(cuid())
+  organizationId  String
+  label           String
+  type            String // OPERATING | TAX | RESERVE | PAYROLL | PROJECT | SUPPLIER | AGENT | SETTLEMENT | PERSONAL
+  currency        String
+  status          String   @default("ACTIVE") // ACTIVE | FROZEN | ARCHIVED
+  description     String?
+  ledgerAccountId String   @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  ledgerAccount  LedgerAccount   @relation(fields: [ledgerAccountId], references: [id])
+  holds          Hold[]
+  cards          Card[]
+  agents         Agent[]
+
+  @@index([organizationId])
+  @@unique([organizationId, label, currency])
+}
+
+model LedgerAccount {
+  id             String   @id @default(cuid())
+  organizationId String
+  code           String // WALLET:<currency>:<label> | MPESA_CLEARING | FEE_INCOME | SALES | ...
+  name           String
+  type           String // ASSET | LIABILITY | EQUITY | INCOME | EXPENSE
+  normalBalance  String // DEBIT | CREDIT
+  currency       String?
+  isSystemAccount Boolean @default(false)
+  createdAt      DateTime @default(now())
+
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  wallet       Wallet?
+  entries      LedgerEntry[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+model LedgerTransaction {
+  id             String    @id @default(cuid())
+  organizationId String
+  reference      String    @unique // ltx_<12>
+  description    String
+  source         String // TRANSFER | PAYMENT | PAYOUT | FX_CONVERSION | SPLIT_RULE | AGENT | CARD_AUTH | ADJUSTMENT | REVERSAL | FEE | OPENING
+  status         String    @default("POSTED") // PENDING | POSTED | REVERSED
+  idempotencyKey String?   @unique
+  reversalOfId   String?
+  amountMinor    BigInt
+  currency       String
+  actorType      String // USER | AGENT | SYSTEM | SERVICE
+  actorId        String?
+  actorLabel     String?
+  metadata       String? // JSON
+  effectiveAt    DateTime  @default(now())
+  postedAt       DateTime?
+  reversedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization         @relation(fields: [organizationId], references: [id])
+  entries      LedgerEntry[]
+  reversalOf   LedgerTransaction?   @relation("Reversals", fields: [reversalOfId], references: [id])
+  reversals    LedgerTransaction[]  @relation("Reversals")
+  payments     Payment[]
+
+  @@index([organizationId, effectiveAt])
+  @@index([organizationId, source])
+}
+
+model LedgerEntry {
+  id            String   @id @default(cuid())
+  transactionId String
+  accountId     String
+  direction     String // DEBIT | CREDIT
+  amountMinor   BigInt
+  currency      String
+
+  transaction LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  account     LedgerAccount     @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@index([transactionId])
+}
+
+model Hold {
+  id                  String    @id @default(cuid())
+  organizationId      String
+  walletId            String
+  reference           String    @unique // hld_<10>
+  amountMinor         BigInt
+  currency            String
+  status              String    @default("ACTIVE") // ACTIVE | CAPTURED | RELEASED | EXPIRED
+  reason              String?
+  captureTransactionId String?
+  expiresAt           DateTime?
+  createdAt           DateTime  @default(now())
+  capturedAt          DateTime?
+  releasedAt          DateTime?
+
+  wallet       Wallet        @relation(fields: [walletId], references: [id])
+  organization Organization  @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, status])
+}
+
+model SettlementAccount {
+  // External settlement destinations (beneficiaries)
+  id             String   @id @default(cuid())
+  organizationId String
+  label          String
+  railType       String // MOBILE_MONEY | BANK | CRYPTO
+  railDetail     String // JSON: {phone, accountNo, bankCode, address...}
+  beneficiaryName String
+  verified       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CUSTOMERS & PAYMENTS
+// ─────────────────────────────────────────────────────────────────────
+
+model Customer {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  email          String?
+  phone          String?
+  country        String   @default("KE")
+  riskTier       String   @default("LOW") // LOW | MEDIUM | HIGH
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  payments     Payment[]
+  invoices     Invoice[]
+
+  @@index([organizationId])
+}
+
+model Payment {
+  id                String    @id @default(cuid())
+  organizationId    String
+  reference         String    @unique // pay_<12>
+  customerId        String?
+  customerName      String? // denormalized for public checkout
+  customerEmail     String?
+  amountMinor       BigInt
+  feeMinor          BigInt    @default(0)
+  currency          String
+  direction         String    @default("IN") // IN = collection, OUT = payout
+  method            String // MPESA | BANK | CARD | WALLET | USDC
+  providerId        String?
+  providerReference String?
+  status            String // CREATED | AUTHORIZED | PROCESSING | PENDING | SETTLED | FAILED | CANCELLED | REFUNDED | REVERSED | DISPUTED
+  failureReason     String?
+  description       String?
+  invoiceId         String?
+  paymentLinkId     String?
+  paymentLink       PaymentLink?   @relation(fields: [paymentLinkId], references: [id])
+  checkoutToken     String? @unique
+  riskDecision      String? // ALLOW | REVIEW | DECLINE
+  riskScore         Int?
+  ledgerTransactionId String?
+  idempotencyKey    String?   @unique
+  timeline          String? // JSON [{at, event, detail}] — full transparency trail
+  metadata          String? // JSON
+  settledAt         DateTime?
+  failedAt          DateTime?
+  refundedMinor     BigInt    @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organization Organization          @relation(fields: [organizationId], references: [id])
+  customer     Customer?             @relation(fields: [customerId], references: [id])
+  provider     RailProvider?         @relation(fields: [providerId], references: [id])
+  ledgerTransaction LedgerTransaction? @relation(fields: [ledgerTransactionId], references: [id])
+  providerTransactions ProviderTransaction[]
+  riskEvaluations RiskEvaluation[]
+  webhookDeliveries WebhookDelivery[]
+  splitRuleExecutions SplitRuleExecution[]
+  reconciliationCases ReconciliationCase[]
+  invoice     Invoice?               @relation(fields: [invoiceId], references: [id])
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, method])
+}
+
+model PaymentLink {
+  id             String   @id @default(cuid())
+  organizationId String
+  token          String   @unique // plink_<10>
+  label          String
+  type           String // FIXED | CUSTOM | DONATION | TIP
+  amountMinor    BigInt?
+  currency       String
+  status         String   @default("ACTIVE") // ACTIVE | ARCHIVED
+  uses           Int      @default(0)
+  revenueMinor   BigInt   @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  payments     Payment[]
+
+  @@index([organizationId])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// PROVIDER RAILS (sandbox providers, explicit TEST mode)
+// ─────────────────────────────────────────────────────────────────────
+
+model RailProvider {
+  id             String   @id @default(cuid())
+  code           String   @unique // MPESA_V1 | EQUITY_EFT | CARD_VISA | CARD_MC | USDC_BASE | NOVERA_INTERNAL
+  name           String
+  railType       String // MOBILE_MONEY | BANK | CARD | CRYPTO | INTERNAL | FX
+  mode           String   @default("TEST")
+  status         String   @default("OPERATIONAL") // OPERATIONAL | DEGRADED | DOWN
+  latencyMsAvg   Int      @default(420)
+  successRateBps Int      @default(9890)
+  feeBps         Int      @default(150)
+  fixedFeeMinor  BigInt   @default(0)
+  currency       String   @default("KES")
+  capabilities   String? // JSON
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  payments             Payment[]
+  providerTransactions ProviderTransaction[]
+  reconciliationCases  ReconciliationCase[]
+}
+
+model ProviderTransaction {
+  // The provider's own statement of what happened on their rail.
+  // Reconciliation compares this against the Novera ledger.
+  id                   String    @id @default(cuid())
+  providerId           String
+  paymentId            String?
+  externalReference    String    @unique
+  amountMinor          BigInt
+  currency             String
+  status               String // SUBMITTED | ACKNOWLEDGED | SETTLED | FAILED
+  rawPayload           String? // JSON — the simulated provider webhook payload
+  reconciliationStatus String    @default("UNMATCHED") // MATCHED | UNMATCHED | DISCREPANCY | RESOLVED
+  discrepancyType      String? // AMOUNT_MISMATCH | CURRENCY_MISMATCH | STATUS_MISMATCH | LATE_SETTLEMENT | UNKNOWN_REFERENCE
+  resolution           String? // JSON — operator resolution record
+  settledAt            DateTime?
+  createdAt            DateTime  @default(now())
+
+  provider RailProvider @relation(fields: [providerId], references: [id])
+  payment  Payment?     @relation(fields: [paymentId], references: [id])
+
+  @@index([reconciliationStatus])
+  @@index([providerId])
+}
+
+model ReconciliationCase {
+  id                   String    @id @default(cuid())
+  organizationId       String?
+  providerId           String
+  paymentId            String?
+  providerTransactionId String?
+  type                 String // MISSING_AT_PROVIDER | MISSING_IN_LEDGER | AMOUNT_MISMATCH | CURRENCY_MISMATCH | STATUS_MISMATCH | LATE_SETTLEMENT | UNKNOWN_REFERENCE
+  detail               String? // JSON with both sides of the comparison
+  severity             String    @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  status               String    @default("OPEN") // OPEN | INVESTIGATING | RESOLVED | DISMISSED
+  resolutionNote       String?
+  resolvedBy           String?
+  createdAt            DateTime  @default(now())
+  resolvedAt           DateTime?
+
+  organization Organization?       @relation(fields: [organizationId], references: [id])
+  provider     RailProvider        @relation(fields: [providerId], references: [id])
+  payment      Payment?            @relation(fields: [paymentId], references: [id])
+
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// INVOICES
+// ─────────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id              String    @id @default(cuid())
+  organizationId  String
+  number          String // INV-2026-0001
+  customerId      String
+  status          String // DRAFT | ISSUED | VIEWED | PARTIALLY_PAID | PAID | OVERDUE | CANCELLED
+  currency        String
+  subtotalMinor   BigInt
+  taxMinor        BigInt    @default(0)
+  discountMinor   BigInt    @default(0)
+  totalMinor      BigInt
+  amountPaidMinor BigInt    @default(0)
+  dueAt           DateTime?
+  issuedAt        DateTime?
+  paidAt          DateTime?
+  viewedAt        DateTime?
+  notes           String?
+  reminderCount   Int       @default(0)
+  lastReminderAt  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  customer     Customer     @relation(fields: [customerId], references: [id])
+  items        InvoiceItem[]
+  payments     Payment[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, status])
+}
+
+model InvoiceItem {
+  id          String @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Int    @default(1)
+  unitMinor   BigInt
+  totalMinor  BigInt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CARDS
+// ─────────────────────────────────────────────────────────────────────
+
+model Card {
+  id                String   @id @default(cuid())
+  organizationId    String
+  label             String
+  type              String // VIRTUAL | DISPOSABLE | PHYSICAL | EMPLOYEE | PROJECT | AGENT
+  status            String   @default("ACTIVE") // REQUESTED | CREATED | PROVISIONING | ACTIVE | FROZEN | LOST | STOLEN | EXPIRED | TERMINATED
+  brand             String   @default("VISA")
+  last4             String
+  expiryMonth       Int
+  expiryYear        Int
+  currency          String
+  holderName        String
+  perTxnLimitMinor  BigInt?
+  dailyLimitMinor   BigInt?
+  monthlyLimitMinor BigInt?
+  mccAllowlist      String? // JSON array of MCC codes
+  merchantAllowlist String? // JSON array of merchant name fragments
+  countryAllowlist  String? // JSON array of ISO codes
+  allowOnline       Boolean  @default(true)
+  allowContactless  Boolean  @default(true)
+  allowAtm          Boolean  @default(false)
+  allowInternational Boolean @default(false)
+  walletId          String?
+  agentId           String? @unique
+  spendTodayMinor   BigInt   @default(0)
+  spendMonthMinor   BigInt   @default(0)
+  lastUsedAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization    Organization          @relation(fields: [organizationId], references: [id])
+  wallet          Wallet?               @relation(fields: [walletId], references: [id])
+  agent           Agent?                @relation(fields: [agentId], references: [id])
+  authorizations  CardAuthorization[]
+
+  @@index([organizationId])
+}
+
+model CardAuthorization {
+  id                  String   @id @default(cuid())
+  cardId              String
+  merchantName        String
+  mcc                 String
+  amountMinor         BigInt
+  currency            String
+  country             String   @default("KE")
+  channel             String // ONLINE | POS | ATM | CONTACTLESS
+  decision            String // APPROVED | DECLINED
+  declineReason       String?
+  riskScore           Int      @default(0)
+  evaluatedRules      String? // JSON
+  ledgerTransactionId String?
+  createdAt           DateTime @default(now())
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+  @@index([decision])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// AGENTIC FINANCE — Know Your Agent, policies, approvals
+// ─────────────────────────────────────────────────────────────────────
+
+model Agent {
+  id                       String    @id @default(cuid())
+  organizationId           String
+  name                     String
+  role                     String // PROCUREMENT | TREASURY | EXPENSES | BILLING | ANALYST | CUSTOM
+  description              String?
+  status                   String    @default("ACTIVE") // ACTIVE | PAUSED | REVOKED
+  avatarEmoji              String?
+  walletId                 String?
+  perTransactionLimitMinor BigInt?
+  dailyLimitMinor          BigInt?
+  dailySpendMinor          BigInt    @default(0)
+  requiresApprovalAboveMinor BigInt  @default(0)
+  allowedMerchants         String? // JSON array
+  scopes                   String // JSON array of tool scopes
+  credentialPrefix         String? // nv_agent_... (key hash stored separately)
+  credentialHash           String?
+  lastActiveAt             DateTime?
+  totalActions             Int       @default(0)
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id])
+  wallet       Wallet?         @relation(fields: [walletId], references: [id])
+  card         Card?
+  intents      AgentIntent[]
+
+  @@index([organizationId])
+}
+
+model AgentIntent {
+  id              String    @id @default(cuid())
+  organizationId  String
+  agentId         String
+  tool            String // payments.propose | transfers.propose | suppliers.compare | treasury.report | balances.read
+  description     String
+  payload         String // JSON — the proposal (AI-generated, untrusted until validated)
+  status          String // PROPOSED | POLICY_DENIED | PENDING_APPROVAL | APPROVED | EXECUTED | REJECTED | EXECUTION_FAILED
+  policyDecision  String? // ALLOW | REQUIRE_APPROVAL | DECLINE
+  policyReasons   String? // JSON
+  approvalRequestId String? @unique
+  ledgerTransactionId String?
+  executedAt       DateTime?
+  failureReason    String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  agent        Agent            @relation(fields: [agentId], references: [id])
+  approval     ApprovalRequest? @relation(fields: [approvalRequestId], references: [id])
+
+  @@index([organizationId, status])
+  @@index([agentId])
+}
+
+model ApprovalRequest {
+  id            String    @id @default(cuid())
+  organizationId String
+  requesterType String // AGENT | USER | SYSTEM
+  requesterId   String?
+  requesterLabel String?
+  action        String // AGENT_PAYMENT | TRANSFER | CARD_ISSUANCE | POLICY_CHANGE | SPLIT_RULE_CHANGE | KEY_ROTATION
+  payload       String // JSON
+  amountMinor   BigInt?
+  currency      String?
+  status        String    @default("PENDING") // PENDING | APPROVED | DECLINED | EXPIRED
+  decidedBy     String? // userId
+  decidedByName String?
+  decidedAt     DateTime?
+  decisionNote  String?
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  intent       AgentIntent?
+
+  @@index([organizationId, status])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// PROGRAMMABLE MONEY — split rules
+// ─────────────────────────────────────────────────────────────────────
+
+model SplitRule {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  trigger        String // PAYMENT_RECEIVED | INVOICE_PAID | MANUAL
+  allocations    String // JSON [{label, walletId, percentBps}]
+  totalAllocatedBps Int @default(10000)
+  version        Int      @default(1)
+  status         String   @default("DRAFT") // DRAFT | ACTIVE | ARCHIVED
+  approvedByName String?
+  simulationsRun Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id])
+  executions   SplitRuleExecution[]
+
+  @@index([organizationId, status])
+}
+
+model SplitRuleExecution {
+  id                  String   @id @default(cuid())
+  splitRuleId         String
+  paymentId           String?
+  organizationId      String
+  ledgerTransactionId String?
+  breakdown           String // JSON [{wallet, percentBps, amountMinor}]
+  amountMinor         BigInt
+  currency            String
+  createdAt           DateTime @default(now())
+
+  splitRule SplitRule @relation(fields: [splitRuleId], references: [id], onDelete: Cascade)
+  payment   Payment?  @relation(fields: [paymentId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([splitRuleId])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// POLICY & RISK
+// ─────────────────────────────────────────────────────────────────────
+
+model Policy {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  subjectType    String // AGENT | USER | ROLE | API_KEY
+  subjectId      String?
+  rules          String // JSON — deterministic DSL (see @novera/policy)
+  version        Int      @default(1)
+  status         String   @default("ACTIVE") // DRAFT | ACTIVE | ARCHIVED
+  updatedByName  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, subjectType])
+}
+
+model RiskRule {
+  id             String   @id @default(cuid())
+  organizationId String? // null = platform-level default rule
+  name           String
+  description    String?
+  conditions     String // JSON [{field, operator, value}]
+  action         String // ALLOW | REVIEW | DECLINE
+  priority       Int      @default(100)
+  status         String   @default("ACTIVE") // ACTIVE | ARCHIVED
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@index([status])
+}
+
+model RiskEvaluation {
+  id             String   @id @default(cuid())
+  organizationId String
+  paymentId      String?
+  subject        String // PAYMENT_CREATE | CARD_AUTH | WITHDRAWAL | TRANSFER
+  score          Int
+  decision       String // ALLOW | REVIEW | DECLINE
+  reasons        String // JSON
+  ruleHits       String? // JSON
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  payment      Payment?     @relation(fields: [paymentId], references: [id])
+
+  @@index([organizationId])
+  @@index([decision])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// DEVELOPER PLATFORM — API keys, request logs, webhooks
+// ─────────────────────────────────────────────────────────────────────
+
+model ApiKey {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  mode           String    @default("TEST") // TEST | LIVE
+  prefix         String    @unique // nv_test_ / nv_live_ + 8 chars
+  keyHash        String
+  lastFour       String
+  scopes         String // JSON array
+  rateLimitPerMin Int     @default(120)
+  status         String    @default("ACTIVE") // ACTIVE | REVOKED
+  lastUsedAt     DateTime?
+  requestCount   Int       @default(0)
+  createdAt      DateTime  @default(now())
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  requestLogs ApiRequestLog[]
+
+  @@index([organizationId])
+}
+
+model ApiRequestLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  apiKeyId       String?
+  method         String
+  path           String
+  status         Int
+  durationMs     Int
+  requestBody    String? // redacted JSON
+  errorCode      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  apiKey      ApiKey?      @relation(fields: [apiKeyId], references: [id])
+
+  @@index([organizationId, createdAt])
+}
+
+model WebhookEndpoint {
+  id             String   @id @default(cuid())
+  organizationId String
+  url            String
+  description    String?
+  events         String // JSON array of event types
+  secret         String // nvwhsec_...
+  status         String   @default("ACTIVE") // ACTIVE | PAUSED
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  deliveries   WebhookDelivery[]
+
+  @@index([organizationId])
+}
+
+model WebhookDelivery {
+  id             String    @id @default(cuid())
+  endpointId     String
+  organizationId String
+  event          String // payment.settled | payment.failed | invoice.paid | ...
+  paymentId      String?
+  payload        String // JSON body
+  signature      String // HMAC-SHA256 hex
+  status         String // PENDING | DELIVERED | FAILED | DEAD
+  responseCode   Int?
+  attempts       Int      @default(0)
+  nextAttemptAt  DateTime?
+  deliveredAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  payment     Payment?        @relation(fields: [paymentId], references: [id])
+  organization Organization   @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// FX — rates stored as scaled integers, never floats
+// ─────────────────────────────────────────────────────────────────────
+
+model FxQuote {
+  id                  String    @id @default(cuid())
+  organizationId      String
+  baseCurrency        String
+  quoteCurrency       String
+  rateScaled          BigInt // rate × 10^8
+  rateScale           Int       @default(8)
+  spreadBps           Int       @default(80)
+  status              String    @default("QUOTED") // QUOTED | EXECUTED | EXPIRED
+  ledgerTransactionId String?
+  expiresAt           DateTime?
+  executedAt          DateTime?
+  createdAt           DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// COPILOT
+// ─────────────────────────────────────────────────────────────────────
+
+model CopilotMessage {
+  id             String   @id @default(cuid())
+  organizationId String
+  role           String // user | assistant
+  content        String
+  toolName       String? // which deterministic tool produced the data
+  toolArgs       String? // JSON
+  grounding      String? // GROUNDED | CALCULATED | ESTIMATED | UNKNOWN
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// AUDIT — tamper-evident append-only trail (hash chain)
+// ─────────────────────────────────────────────────────────────────────
+
+model AuditEvent {
+  id             String   @id @default(cuid())
+  organizationId String?
+  actorType      String // USER | AGENT | SYSTEM | SERVICE | PROVIDER
+  actorId        String?
+  actorLabel     String?
+  action         String // e.g. ledger.posted, payment.settled, auth.login, policy.evaluated
+  resourceType   String
+  resourceId     String?
+  description    String
+  metadata       String? // JSON
+  severity       String   @default("INFO") // INFO | WARN | CRITICAL
+  correlationId  String?
+  prevHash       String?
+  hash           String // sha256(prevHash + canonical fields) — tamper-evident chain
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([action])
+  @@index([severity])
+}

@@ -1,0 +1,848 @@
+     1→// ╔══════════════════════════════════════════════════════════════════╗
+     2→// ║  NOVERA — Programmable Financial Infrastructure                   ║
+     3→// ║  Financial Kernel Schema (SQLite reference build)                 ║
+     4→// ║                                                                    ║
+     5→// ║  Rules encoded here (per engineering directive):                   ║
+     6→// ║  • All money is integer minor units (BigInt) — never floats        ║
+     7→// ║  • Double-entry ledger: every transaction balances debits=credits  ║
+     8→// ║  • Posted ledger records are immutable — corrections via reversal  ║
+     9→// ║  • Every money-changing operation carries an idempotency key       ║
+    10→// ║  • SQLite build uses String status fields; domain unions in        ║
+    11→// ║    @novera/domain enforce legal state transitions in TypeScript    ║
+    12→// ║  • Production target: PostgreSQL 18 (same model, native enums)     ║
+    13→// ╚══════════════════════════════════════════════════════════════════╝
+    14→
+    15→generator client {
+    16→  provider = "prisma-client-js"
+    17→}
+    18→
+    19→datasource db {
+    20→  provider = "sqlite"
+    21→  url      = env("DATABASE_URL")
+    22→}
+    23→
+    24→// ─────────────────────────────────────────────────────────────────────
+    25→// IDENTITY & TENANCY
+    26→// ─────────────────────────────────────────────────────────────────────
+    27→
+    28→model User {
+    29→  id           String   @id @default(cuid())
+    30→  email        String   @unique
+    31→  name         String
+    32→  passwordHash String
+    33→  avatarColor  String   @default("#34d399")
+    34→  status       String   @default("ACTIVE") // ACTIVE | SUSPENDED
+    35→  mfaEnabled   Boolean  @default(false)
+    36→  createdAt    DateTime @default(now())
+    37→  updatedAt    DateTime @updatedAt
+    38→
+    39→  memberships Membership[]
+    40→  sessions    Session[]
+    41→}
+    42→
+    43→model Organization {
+    44→  id        String   @id @default(cuid())
+    45→  name      String
+    46→  slug      String   @unique
+    47→  type      String   @default("BUSINESS") // BUSINESS | MERCHANT | PLATFORM | CONSUMER
+    48→  country   String   @default("KE")
+    49→  mode      String   @default("TEST") // TEST | LIVE — sandbox separation is explicit
+    50→  status    String   @default("ACTIVE")
+    51→  timezone  String   @default("Africa/Nairobi")
+    52→  createdAt DateTime @default(now())
+    53→  updatedAt DateTime @updatedAt
+    54→
+    55→  memberships          Membership[]
+    56→  wallets              Wallet[]
+    57→  ledgerAccounts       LedgerAccount[]
+    58→  ledgerTransactions   LedgerTransaction[]
+    59→  holds                Hold[]
+    60→  customers            Customer[]
+    61→  payments             Payment[]
+    62→  paymentLinks         PaymentLink[]
+    63→  invoices             Invoice[]
+    64→  cards                Card[]
+    65→  agents               Agent[]
+    66→  approvalRequests     ApprovalRequest[]
+    67→  agentIntents         AgentIntent[]
+    68→  splitRules           SplitRule[]
+    69→  splitRuleExecutions  SplitRuleExecution[]
+    70→  policies             Policy[]
+    71→  riskRules            RiskRule[]
+    72→  riskEvaluations      RiskEvaluation[]
+    73→  apiKeys              ApiKey[]
+    74→  apiRequestLogs       ApiRequestLog[]
+    75→  webhookEndpoints     WebhookEndpoint[]
+    76→  webhookDeliveries    WebhookDelivery[]
+    77→  fxQuotes             FxQuote[]
+    78→  copilotMessages      CopilotMessage[]
+    79→  reconciliationCases  ReconciliationCase[]
+    80→  settlementAccounts   SettlementAccount[]
+    81→}
+    82→
+    83→model Membership {
+    84→  id             String   @id @default(cuid())
+    85→  userId         String
+    86→  organizationId String
+    87→  role           String   @default("MEMBER") // OWNER | ADMIN | FINANCE | DEVELOPER | MEMBER | VIEWER
+    88→  createdAt      DateTime @default(now())
+    89→
+    90→  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+    91→  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+    92→
+    93→  @@unique([userId, organizationId])
+    94→  @@index([organizationId])
+    95→}
+    96→
+    97→model Session {
+    98→  id                  String   @id @default(cuid())
+    99→  userId              String
+   100→  token               String   @unique
+   101→  activeOrganizationId String?
+   102→  ip                  String?
+   103→  userAgent           String?
+   104→  createdAt           DateTime @default(now())
+   105→  expiresAt           DateTime
+   106→  revokedAt           DateTime?
+   107→
+   108→  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+   109→
+   110→  @@index([userId])
+   111→}
+   112→
+   113→// ─────────────────────────────────────────────────────────────────────
+   114→// FINANCIAL KERNEL — Wallets, Accounts, Double-Entry Ledger
+   115→// ─────────────────────────────────────────────────────────────────────
+   116→
+   117→model Wallet {
+   118→  id              String   @id @default(cuid())
+   119→  organizationId  String
+   120→  label           String
+   121→  type            String // OPERATING | TAX | RESERVE | PAYROLL | PROJECT | SUPPLIER | AGENT | SETTLEMENT | PERSONAL
+   122→  currency        String
+   123→  status          String   @default("ACTIVE") // ACTIVE | FROZEN | ARCHIVED
+   124→  description     String?
+   125→  ledgerAccountId String   @unique
+   126→  createdAt       DateTime @default(now())
+   127→  updatedAt       DateTime @updatedAt
+   128→
+   129→  organization   Organization    @relation(fields: [organizationId], references: [id])
+   130→  ledgerAccount  LedgerAccount   @relation(fields: [ledgerAccountId], references: [id])
+   131→  holds          Hold[]
+   132→  cards          Card[]
+   133→  agents         Agent[]
+   134→
+   135→  @@index([organizationId])
+   136→  @@unique([organizationId, label, currency])
+   137→}
+   138→
+   139→model LedgerAccount {
+   140→  id             String   @id @default(cuid())
+   141→  organizationId String
+   142→  code           String // WALLET:<currency>:<label> | MPESA_CLEARING | FEE_INCOME | SALES | ...
+   143→  name           String
+   144→  type           String // ASSET | LIABILITY | EQUITY | INCOME | EXPENSE
+   145→  normalBalance  String // DEBIT | CREDIT
+   146→  currency       String?
+   147→  isSystemAccount Boolean @default(false)
+   148→  createdAt      DateTime @default(now())
+   149→
+   150→  organization Organization    @relation(fields: [organizationId], references: [id])
+   151→  wallet       Wallet?
+   152→  entries      LedgerEntry[]
+   153→
+   154→  @@unique([organizationId, code])
+   155→  @@index([organizationId])
+   156→}
+   157→
+   158→model LedgerTransaction {
+   159→  id             String    @id @default(cuid())
+   160→  organizationId String
+   161→  reference      String    @unique // ltx_<12>
+   162→  description    String
+   163→  source         String // TRANSFER | PAYMENT | PAYOUT | FX_CONVERSION | SPLIT_RULE | AGENT | CARD_AUTH | ADJUSTMENT | REVERSAL | FEE | OPENING
+   164→  status         String    @default("POSTED") // PENDING | POSTED | REVERSED
+   165→  idempotencyKey String?   @unique
+   166→  reversalOfId   String?
+   167→  amountMinor    BigInt
+   168→  currency       String
+   169→  actorType      String // USER | AGENT | SYSTEM | SERVICE
+   170→  actorId        String?
+   171→  actorLabel     String?
+   172→  metadata       String? // JSON
+   173→  effectiveAt    DateTime  @default(now())
+   174→  postedAt       DateTime?
+   175→  reversedAt     DateTime?
+   176→  createdAt      DateTime  @default(now())
+   177→
+   178→  organization Organization         @relation(fields: [organizationId], references: [id])
+   179→  entries      LedgerEntry[]
+   180→  reversalOf   LedgerTransaction?   @relation("Reversals", fields: [reversalOfId], references: [id])
+   181→  reversals    LedgerTransaction[]  @relation("Reversals")
+   182→  payments     Payment[]
+   183→
+   184→  @@index([organizationId, effectiveAt])
+   185→  @@index([organizationId, source])
+   186→}
+   187→
+   188→model LedgerEntry {
+   189→  id            String   @id @default(cuid())
+   190→  transactionId String
+   191→  accountId     String
+   192→  direction     String // DEBIT | CREDIT
+   193→  amountMinor   BigInt
+   194→  currency      String
+   195→
+   196→  transaction LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+   197→  account     LedgerAccount     @relation(fields: [accountId], references: [id])
+   198→
+   199→  @@index([accountId])
+   200→  @@index([transactionId])
+   201→}
+   202→
+   203→model Hold {
+   204→  id                  String    @id @default(cuid())
+   205→  organizationId      String
+   206→  walletId            String
+   207→  reference           String    @unique // hld_<10>
+   208→  amountMinor         BigInt
+   209→  currency            String
+   210→  status              String    @default("ACTIVE") // ACTIVE | CAPTURED | RELEASED | EXPIRED
+   211→  reason              String?
+   212→  captureTransactionId String?
+   213→  expiresAt           DateTime?
+   214→  createdAt           DateTime  @default(now())
+   215→  capturedAt          DateTime?
+   216→  releasedAt          DateTime?
+   217→
+   218→  wallet       Wallet        @relation(fields: [walletId], references: [id])
+   219→  organization Organization  @relation(fields: [organizationId], references: [id])
+   220→
+   221→  @@index([organizationId, status])
+   222→}
+   223→
+   224→model SettlementAccount {
+   225→  // External settlement destinations (beneficiaries)
+   226→  id             String   @id @default(cuid())
+   227→  organizationId String
+   228→  label          String
+   229→  railType       String // MOBILE_MONEY | BANK | CRYPTO
+   230→  railDetail     String // JSON: {phone, accountNo, bankCode, address...}
+   231→  beneficiaryName String
+   232→  verified       Boolean  @default(false)
+   233→  createdAt      DateTime @default(now())
+   234→  updatedAt      DateTime @updatedAt
+   235→
+   236→  organization Organization @relation(fields: [organizationId], references: [id])
+   237→
+   238→  @@index([organizationId])
+   239→}
+   240→
+   241→// ─────────────────────────────────────────────────────────────────────
+   242→// CUSTOMERS & PAYMENTS
+   243→// ─────────────────────────────────────────────────────────────────────
+   244→
+   245→model Customer {
+   246→  id             String   @id @default(cuid())
+   247→  organizationId String
+   248→  name           String
+   249→  email          String?
+   250→  phone          String?
+   251→  country        String   @default("KE")
+   252→  riskTier       String   @default("LOW") // LOW | MEDIUM | HIGH
+   253→  createdAt      DateTime @default(now())
+   254→  updatedAt      DateTime @updatedAt
+   255→
+   256→  organization Organization @relation(fields: [organizationId], references: [id])
+   257→  payments     Payment[]
+   258→  invoices     Invoice[]
+   259→
+   260→  @@index([organizationId])
+   261→}
+   262→
+   263→model Payment {
+   264→  id                String    @id @default(cuid())
+   265→  organizationId    String
+   266→  reference         String    @unique // pay_<12>
+   267→  customerId        String?
+   268→  customerName      String? // denormalized for public checkout
+   269→  customerEmail     String?
+   270→  amountMinor       BigInt
+   271→  feeMinor          BigInt    @default(0)
+   272→  currency          String
+   273→  direction         String    @default("IN") // IN = collection, OUT = payout
+   274→  method            String // MPESA | BANK | CARD | WALLET | USDC
+   275→  providerId        String?
+   276→  providerReference String?
+   277→  status            String // CREATED | AUTHORIZED | PROCESSING | PENDING | SETTLED | FAILED | CANCELLED | REFUNDED | REVERSED | DISPUTED
+   278→  failureReason     String?
+   279→  description       String?
+   280→  invoiceId         String?
+   281→  paymentLinkId     String?
+   282→  paymentLink       PaymentLink?   @relation(fields: [paymentLinkId], references: [id])
+   283→  checkoutToken     String? @unique
+   284→  riskDecision      String? // ALLOW | REVIEW | DECLINE
+   285→  riskScore         Int?
+   286→  ledgerTransactionId String?
+   287→  idempotencyKey    String?   @unique
+   288→  timeline          String? // JSON [{at, event, detail}] — full transparency trail
+   289→  metadata          String? // JSON
+   290→  settledAt         DateTime?
+   291→  failedAt          DateTime?
+   292→  refundedMinor     BigInt    @default(0)
+   293→  createdAt         DateTime  @default(now())
+   294→  updatedAt         DateTime  @updatedAt
+   295→
+   296→  organization Organization          @relation(fields: [organizationId], references: [id])
+   297→  customer     Customer?             @relation(fields: [customerId], references: [id])
+   298→  provider     RailProvider?         @relation(fields: [providerId], references: [id])
+   299→  ledgerTransaction LedgerTransaction? @relation(fields: [ledgerTransactionId], references: [id])
+   300→  providerTransactions ProviderTransaction[]
+   301→  riskEvaluations RiskEvaluation[]
+   302→  webhookDeliveries WebhookDelivery[]
+   303→  splitRuleExecutions SplitRuleExecution[]
+   304→  reconciliationCases ReconciliationCase[]
+   305→  invoice     Invoice?               @relation(fields: [invoiceId], references: [id])
+   306→
+   307→  @@index([organizationId, status])
+   308→  @@index([organizationId, createdAt])
+   309→  @@index([organizationId, method])
+   310→}
+   311→
+   312→model PaymentLink {
+   313→  id             String   @id @default(cuid())
+   314→  organizationId String
+   315→  token          String   @unique // plink_<10>
+   316→  label          String
+   317→  type           String // FIXED | CUSTOM | DONATION | TIP
+   318→  amountMinor    BigInt?
+   319→  currency       String
+   320→  status         String   @default("ACTIVE") // ACTIVE | ARCHIVED
+   321→  uses           Int      @default(0)
+   322→  revenueMinor   BigInt   @default(0)
+   323→  createdAt      DateTime @default(now())
+   324→  updatedAt      DateTime @updatedAt
+   325→
+   326→  organization Organization @relation(fields: [organizationId], references: [id])
+   327→  payments     Payment[]
+   328→
+   329→  @@index([organizationId])
+   330→}
+   331→
+   332→// ─────────────────────────────────────────────────────────────────────
+   333→// PROVIDER RAILS (sandbox providers, explicit TEST mode)
+   334→// ─────────────────────────────────────────────────────────────────────
+   335→
+   336→model RailProvider {
+   337→  id             String   @id @default(cuid())
+   338→  code           String   @unique // MPESA_V1 | EQUITY_EFT | CARD_VISA | CARD_MC | USDC_BASE | NOVERA_INTERNAL
+   339→  name           String
+   340→  railType       String // MOBILE_MONEY | BANK | CARD | CRYPTO | INTERNAL | FX
+   341→  mode           String   @default("TEST")
+   342→  status         String   @default("OPERATIONAL") // OPERATIONAL | DEGRADED | DOWN
+   343→  latencyMsAvg   Int      @default(420)
+   344→  successRateBps Int      @default(9890)
+   345→  feeBps         Int      @default(150)
+   346→  fixedFeeMinor  BigInt   @default(0)
+   347→  currency       String   @default("KES")
+   348→  capabilities   String? // JSON
+   349→  createdAt      DateTime @default(now())
+   350→  updatedAt      DateTime @updatedAt
+   351→
+   352→  payments             Payment[]
+   353→  providerTransactions ProviderTransaction[]
+   354→  reconciliationCases  ReconciliationCase[]
+   355→}
+   356→
+   357→model ProviderTransaction {
+   358→  // The provider's own statement of what happened on their rail.
+   359→  // Reconciliation compares this against the Novera ledger.
+   360→  id                   String    @id @default(cuid())
+   361→  providerId           String
+   362→  paymentId            String?
+   363→  externalReference    String    @unique
+   364→  amountMinor          BigInt
+   365→  currency             String
+   366→  status               String // SUBMITTED | ACKNOWLEDGED | SETTLED | FAILED
+   367→  rawPayload           String? // JSON — the simulated provider webhook payload
+   368→  reconciliationStatus String    @default("UNMATCHED") // MATCHED | UNMATCHED | DISCREPANCY | RESOLVED
+   369→  discrepancyType      String? // AMOUNT_MISMATCH | CURRENCY_MISMATCH | STATUS_MISMATCH | LATE_SETTLEMENT | UNKNOWN_REFERENCE
+   370→  resolution           String? // JSON — operator resolution record
+   371→  settledAt            DateTime?
+   372→  createdAt            DateTime  @default(now())
+   373→
+   374→  provider RailProvider @relation(fields: [providerId], references: [id])
+   375→  payment  Payment?     @relation(fields: [paymentId], references: [id])
+   376→
+   377→  @@index([reconciliationStatus])
+   378→  @@index([providerId])
+   379→}
+   380→
+   381→model ReconciliationCase {
+   382→  id                   String    @id @default(cuid())
+   383→  organizationId       String?
+   384→  providerId           String
+   385→  paymentId            String?
+   386→  providerTransactionId String?
+   387→  type                 String // MISSING_AT_PROVIDER | MISSING_IN_LEDGER | AMOUNT_MISMATCH | CURRENCY_MISMATCH | STATUS_MISMATCH | LATE_SETTLEMENT | UNKNOWN_REFERENCE
+   388→  detail               String? // JSON with both sides of the comparison
+   389→  severity             String    @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+   390→  status               String    @default("OPEN") // OPEN | INVESTIGATING | RESOLVED | DISMISSED
+   391→  resolutionNote       String?
+   392→  resolvedBy           String?
+   393→  createdAt            DateTime  @default(now())
+   394→  resolvedAt           DateTime?
+   395→
+   396→  organization Organization?       @relation(fields: [organizationId], references: [id])
+   397→  provider     RailProvider        @relation(fields: [providerId], references: [id])
+   398→  payment      Payment?            @relation(fields: [paymentId], references: [id])
+   399→
+   400→  @@index([status])
+   401→}
+   402→
+   403→// ─────────────────────────────────────────────────────────────────────
+   404→// INVOICES
+   405→// ─────────────────────────────────────────────────────────────────────
+   406→
+   407→model Invoice {
+   408→  id              String    @id @default(cuid())
+   409→  organizationId  String
+   410→  number          String // INV-2026-0001
+   411→  customerId      String
+   412→  status          String // DRAFT | ISSUED | VIEWED | PARTIALLY_PAID | PAID | OVERDUE | CANCELLED
+   413→  currency        String
+   414→  subtotalMinor   BigInt
+   415→  taxMinor        BigInt    @default(0)
+   416→  discountMinor   BigInt    @default(0)
+   417→  totalMinor      BigInt
+   418→  amountPaidMinor BigInt    @default(0)
+   419→  dueAt           DateTime?
+   420→  issuedAt        DateTime?
+   421→  paidAt          DateTime?
+   422→  viewedAt        DateTime?
+   423→  notes           String?
+   424→  reminderCount   Int       @default(0)
+   425→  lastReminderAt  DateTime?
+   426→  createdAt       DateTime  @default(now())
+   427→  updatedAt       DateTime  @updatedAt
+   428→
+   429→  organization Organization @relation(fields: [organizationId], references: [id])
+   430→  customer     Customer     @relation(fields: [customerId], references: [id])
+   431→  items        InvoiceItem[]
+   432→  payments     Payment[]
+   433→
+   434→  @@unique([organizationId, number])
+   435→  @@index([organizationId, status])
+   436→}
+   437→
+   438→model InvoiceItem {
+   439→  id          String @id @default(cuid())
+   440→  invoiceId   String
+   441→  description String
+   442→  quantity    Int    @default(1)
+   443→  unitMinor   BigInt
+   444→  totalMinor  BigInt
+   445→
+   446→  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+   447→
+   448→  @@index([invoiceId])
+   449→}
+   450→
+   451→// ─────────────────────────────────────────────────────────────────────
+   452→// CARDS
+   453→// ─────────────────────────────────────────────────────────────────────
+   454→
+   455→model Card {
+   456→  id                String   @id @default(cuid())
+   457→  organizationId    String
+   458→  label             String
+   459→  type              String // VIRTUAL | DISPOSABLE | PHYSICAL | EMPLOYEE | PROJECT | AGENT
+   460→  status            String   @default("ACTIVE") // REQUESTED | CREATED | PROVISIONING | ACTIVE | FROZEN | LOST | STOLEN | EXPIRED | TERMINATED
+   461→  brand             String   @default("VISA")
+   462→  last4             String
+   463→  expiryMonth       Int
+   464→  expiryYear        Int
+   465→  currency          String
+   466→  holderName        String
+   467→  perTxnLimitMinor  BigInt?
+   468→  dailyLimitMinor   BigInt?
+   469→  monthlyLimitMinor BigInt?
+   470→  mccAllowlist      String? // JSON array of MCC codes
+   471→  merchantAllowlist String? // JSON array of merchant name fragments
+   472→  countryAllowlist  String? // JSON array of ISO codes
+   473→  allowOnline       Boolean  @default(true)
+   474→  allowContactless  Boolean  @default(true)
+   475→  allowAtm          Boolean  @default(false)
+   476→  allowInternational Boolean @default(false)
+   477→  walletId          String?
+   478→  agentId           String? @unique
+   479→  spendTodayMinor   BigInt   @default(0)
+   480→  spendMonthMinor   BigInt   @default(0)
+   481→  lastUsedAt        DateTime?
+   482→  createdAt         DateTime @default(now())
+   483→  updatedAt         DateTime @updatedAt
+   484→
+   485→  organization    Organization          @relation(fields: [organizationId], references: [id])
+   486→  wallet          Wallet?               @relation(fields: [walletId], references: [id])
+   487→  agent           Agent?                @relation(fields: [agentId], references: [id])
+   488→  authorizations  CardAuthorization[]
+   489→
+   490→  @@index([organizationId])
+   491→}
+   492→
+   493→model CardAuthorization {
+   494→  id                  String   @id @default(cuid())
+   495→  cardId              String
+   496→  merchantName        String
+   497→  mcc                 String
+   498→  amountMinor         BigInt
+   499→  currency            String
+   500→  country             String   @default("KE")
+   501→  channel             String // ONLINE | POS | ATM | CONTACTLESS
+   502→  decision            String // APPROVED | DECLINED
+   503→  declineReason       String?
+   504→  riskScore           Int      @default(0)
+   505→  evaluatedRules      String? // JSON
+   506→  ledgerTransactionId String?
+   507→  createdAt           DateTime @default(now())
+   508→
+   509→  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+   510→
+   511→  @@index([cardId])
+   512→  @@index([decision])
+   513→}
+   514→
+   515→// ─────────────────────────────────────────────────────────────────────
+   516→// AGENTIC FINANCE — Know Your Agent, policies, approvals
+   517→// ─────────────────────────────────────────────────────────────────────
+   518→
+   519→model Agent {
+   520→  id                       String    @id @default(cuid())
+   521→  organizationId           String
+   522→  name                     String
+   523→  role                     String // PROCUREMENT | TREASURY | EXPENSES | BILLING | ANALYST | CUSTOM
+   524→  description              String?
+   525→  status                   String    @default("ACTIVE") // ACTIVE | PAUSED | REVOKED
+   526→  avatarEmoji              String?
+   527→  walletId                 String?
+   528→  perTransactionLimitMinor BigInt?
+   529→  dailyLimitMinor          BigInt?
+   530→  dailySpendMinor          BigInt    @default(0)
+   531→  requiresApprovalAboveMinor BigInt  @default(0)
+   532→  allowedMerchants         String? // JSON array
+   533→  scopes                   String // JSON array of tool scopes
+   534→  credentialPrefix         String? // nv_agent_... (key hash stored separately)
+   535→  credentialHash           String?
+   536→  lastActiveAt             DateTime?
+   537→  totalActions             Int       @default(0)
+   538→  createdAt                DateTime  @default(now())
+   539→  updatedAt                DateTime  @updatedAt
+   540→
+   541→  organization Organization    @relation(fields: [organizationId], references: [id])
+   542→  wallet       Wallet?         @relation(fields: [walletId], references: [id])
+   543→  card         Card?
+   544→  intents      AgentIntent[]
+   545→
+   546→  @@index([organizationId])
+   547→}
+   548→
+   549→model AgentIntent {
+   550→  id              String    @id @default(cuid())
+   551→  organizationId  String
+   552→  agentId         String
+   553→  tool            String // payments.propose | transfers.propose | suppliers.compare | treasury.report | balances.read
+   554→  description     String
+   555→  payload         String // JSON — the proposal (AI-generated, untrusted until validated)
+   556→  status          String // PROPOSED | POLICY_DENIED | PENDING_APPROVAL | APPROVED | EXECUTED | REJECTED | EXECUTION_FAILED
+   557→  policyDecision  String? // ALLOW | REQUIRE_APPROVAL | DECLINE
+   558→  policyReasons   String? // JSON
+   559→  approvalRequestId String? @unique
+   560→  ledgerTransactionId String?
+   561→  executedAt       DateTime?
+   562→  failureReason    String?
+   563→  createdAt        DateTime  @default(now())
+   564→  updatedAt        DateTime  @updatedAt
+   565→
+   566→  organization Organization     @relation(fields: [organizationId], references: [id])
+   567→  agent        Agent            @relation(fields: [agentId], references: [id])
+   568→  approval     ApprovalRequest? @relation(fields: [approvalRequestId], references: [id])
+   569→
+   570→  @@index([organizationId, status])
+   571→  @@index([agentId])
+   572→}
+   573→
+   574→model ApprovalRequest {
+   575→  id            String    @id @default(cuid())
+   576→  organizationId String
+   577→  requesterType String // AGENT | USER | SYSTEM
+   578→  requesterId   String?
+   579→  requesterLabel String?
+   580→  action        String // AGENT_PAYMENT | TRANSFER | CARD_ISSUANCE | POLICY_CHANGE | SPLIT_RULE_CHANGE | KEY_ROTATION
+   581→  payload       String // JSON
+   582→  amountMinor   BigInt?
+   583→  currency      String?
+   584→  status        String    @default("PENDING") // PENDING | APPROVED | DECLINED | EXPIRED
+   585→  decidedBy     String? // userId
+   586→  decidedByName String?
+   587→  decidedAt     DateTime?
+   588→  decisionNote  String?
+   589→  expiresAt     DateTime?
+   590→  createdAt     DateTime  @default(now())
+   591→
+   592→  organization Organization  @relation(fields: [organizationId], references: [id])
+   593→  intent       AgentIntent?
+   594→
+   595→  @@index([organizationId, status])
+   596→}
+   597→
+   598→// ─────────────────────────────────────────────────────────────────────
+   599→// PROGRAMMABLE MONEY — split rules
+   600→// ─────────────────────────────────────────────────────────────────────
+   601→
+   602→model SplitRule {
+   603→  id             String   @id @default(cuid())
+   604→  organizationId String
+   605→  name           String
+   606→  trigger        String // PAYMENT_RECEIVED | INVOICE_PAID | MANUAL
+   607→  allocations    String // JSON [{label, walletId, percentBps}]
+   608→  totalAllocatedBps Int @default(10000)
+   609→  version        Int      @default(1)
+   610→  status         String   @default("DRAFT") // DRAFT | ACTIVE | ARCHIVED
+   611→  approvedByName String?
+   612→  simulationsRun Int      @default(0)
+   613→  createdAt      DateTime @default(now())
+   614→  updatedAt      DateTime @updatedAt
+   615→
+   616→  organization Organization           @relation(fields: [organizationId], references: [id])
+   617→  executions   SplitRuleExecution[]
+   618→
+   619→  @@index([organizationId, status])
+   620→}
+   621→
+   622→model SplitRuleExecution {
+   623→  id                  String   @id @default(cuid())
+   624→  splitRuleId         String
+   625→  paymentId           String?
+   626→  organizationId      String
+   627→  ledgerTransactionId String?
+   628→  breakdown           String // JSON [{wallet, percentBps, amountMinor}]
+   629→  amountMinor         BigInt
+   630→  currency            String
+   631→  createdAt           DateTime @default(now())
+   632→
+   633→  splitRule SplitRule @relation(fields: [splitRuleId], references: [id], onDelete: Cascade)
+   634→  payment   Payment?  @relation(fields: [paymentId], references: [id])
+   635→  organization Organization @relation(fields: [organizationId], references: [id])
+   636→
+   637→  @@index([splitRuleId])
+   638→}
+   639→
+   640→// ─────────────────────────────────────────────────────────────────────
+   641→// POLICY & RISK
+   642→// ─────────────────────────────────────────────────────────────────────
+   643→
+   644→model Policy {
+   645→  id             String   @id @default(cuid())
+   646→  organizationId String
+   647→  name           String
+   648→  description    String?
+   649→  subjectType    String // AGENT | USER | ROLE | API_KEY
+   650→  subjectId      String?
+   651→  rules          String // JSON — deterministic DSL (see @novera/policy)
+   652→  version        Int      @default(1)
+   653→  status         String   @default("ACTIVE") // DRAFT | ACTIVE | ARCHIVED
+   654→  updatedByName  String?
+   655→  createdAt      DateTime @default(now())
+   656→  updatedAt      DateTime @updatedAt
+   657→
+   658→  organization Organization @relation(fields: [organizationId], references: [id])
+   659→
+   660→  @@index([organizationId, subjectType])
+   661→}
+   662→
+   663→model RiskRule {
+   664→  id             String   @id @default(cuid())
+   665→  organizationId String? // null = platform-level default rule
+   666→  name           String
+   667→  description    String?
+   668→  conditions     String // JSON [{field, operator, value}]
+   669→  action         String // ALLOW | REVIEW | DECLINE
+   670→  priority       Int      @default(100)
+   671→  status         String   @default("ACTIVE") // ACTIVE | ARCHIVED
+   672→  createdAt      DateTime @default(now())
+   673→  updatedAt      DateTime @updatedAt
+   674→
+   675→  organization Organization? @relation(fields: [organizationId], references: [id])
+   676→
+   677→  @@index([status])
+   678→}
+   679→
+   680→model RiskEvaluation {
+   681→  id             String   @id @default(cuid())
+   682→  organizationId String
+   683→  paymentId      String?
+   684→  subject        String // PAYMENT_CREATE | CARD_AUTH | WITHDRAWAL | TRANSFER
+   685→  score          Int
+   686→  decision       String // ALLOW | REVIEW | DECLINE
+   687→  reasons        String // JSON
+   688→  ruleHits       String? // JSON
+   689→  createdAt      DateTime @default(now())
+   690→
+   691→  organization Organization @relation(fields: [organizationId], references: [id])
+   692→  payment      Payment?     @relation(fields: [paymentId], references: [id])
+   693→
+   694→  @@index([organizationId])
+   695→  @@index([decision])
+   696→}
+   697→
+   698→// ─────────────────────────────────────────────────────────────────────
+   699→// DEVELOPER PLATFORM — API keys, request logs, webhooks
+   700→// ─────────────────────────────────────────────────────────────────────
+   701→
+   702→model ApiKey {
+   703→  id             String    @id @default(cuid())
+   704→  organizationId String
+   705→  name           String
+   706→  mode           String    @default("TEST") // TEST | LIVE
+   707→  prefix         String    @unique // nv_test_ / nv_live_ + 8 chars
+   708→  keyHash        String
+   709→  lastFour       String
+   710→  scopes         String // JSON array
+   711→  rateLimitPerMin Int     @default(120)
+   712→  status         String    @default("ACTIVE") // ACTIVE | REVOKED
+   713→  lastUsedAt     DateTime?
+   714→  requestCount   Int       @default(0)
+   715→  createdAt      DateTime  @default(now())
+   716→
+   717→  organization Organization     @relation(fields: [organizationId], references: [id])
+   718→  requestLogs ApiRequestLog[]
+   719→
+   720→  @@index([organizationId])
+   721→}
+   722→
+   723→model ApiRequestLog {
+   724→  id             String   @id @default(cuid())
+   725→  organizationId String
+   726→  apiKeyId       String?
+   727→  method         String
+   728→  path           String
+   729→  status         Int
+   730→  durationMs     Int
+   731→  requestBody    String? // redacted JSON
+   732→  errorCode      String?
+   733→  createdAt      DateTime @default(now())
+   734→
+   735→  organization Organization @relation(fields: [organizationId], references: [id])
+   736→  apiKey      ApiKey?      @relation(fields: [apiKeyId], references: [id])
+   737→
+   738→  @@index([organizationId, createdAt])
+   739→}
+   740→
+   741→model WebhookEndpoint {
+   742→  id             String   @id @default(cuid())
+   743→  organizationId String
+   744→  url            String
+   745→  description    String?
+   746→  events         String // JSON array of event types
+   747→  secret         String // nvwhsec_...
+   748→  status         String   @default("ACTIVE") // ACTIVE | PAUSED
+   749→  createdAt      DateTime @default(now())
+   750→  updatedAt      DateTime @updatedAt
+   751→
+   752→  organization Organization       @relation(fields: [organizationId], references: [id])
+   753→  deliveries   WebhookDelivery[]
+   754→
+   755→  @@index([organizationId])
+   756→}
+   757→
+   758→model WebhookDelivery {
+   759→  id             String    @id @default(cuid())
+   760→  endpointId     String
+   761→  organizationId String
+   762→  event          String // payment.settled | payment.failed | invoice.paid | ...
+   763→  paymentId      String?
+   764→  payload        String // JSON body
+   765→  signature      String // HMAC-SHA256 hex
+   766→  status         String // PENDING | DELIVERED | FAILED | DEAD
+   767→  responseCode   Int?
+   768→  attempts       Int      @default(0)
+   769→  nextAttemptAt  DateTime?
+   770→  deliveredAt    DateTime?
+   771→  createdAt      DateTime  @default(now())
+   772→
+   773→  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+   774→  payment     Payment?        @relation(fields: [paymentId], references: [id])
+   775→  organization Organization   @relation(fields: [organizationId], references: [id])
+   776→
+   777→  @@index([organizationId, createdAt])
+   778→  @@index([status])
+   779→}
+   780→
+   781→// ─────────────────────────────────────────────────────────────────────
+   782→// FX — rates stored as scaled integers, never floats
+   783→// ─────────────────────────────────────────────────────────────────────
+   784→
+   785→model FxQuote {
+   786→  id                  String    @id @default(cuid())
+   787→  organizationId      String
+   788→  baseCurrency        String
+   789→  quoteCurrency       String
+   790→  rateScaled          BigInt // rate × 10^8
+   791→  rateScale           Int       @default(8)
+   792→  spreadBps           Int       @default(80)
+   793→  status              String    @default("QUOTED") // QUOTED | EXECUTED | EXPIRED
+   794→  ledgerTransactionId String?
+   795→  expiresAt           DateTime?
+   796→  executedAt          DateTime?
+   797→  createdAt           DateTime  @default(now())
+   798→
+   799→  organization Organization @relation(fields: [organizationId], references: [id])
+   800→
+   801→  @@index([organizationId])
+   802→}
+   803→
+   804→// ─────────────────────────────────────────────────────────────────────
+   805→// COPILOT
+   806→// ─────────────────────────────────────────────────────────────────────
+   807→
+   808→model CopilotMessage {
+   809→  id             String   @id @default(cuid())
+   810→  organizationId String
+   811→  role           String // user | assistant
+   812→  content        String
+   813→  toolName       String? // which deterministic tool produced the data
+   814→  toolArgs       String? // JSON
+   815→  grounding      String? // GROUNDED | CALCULATED | ESTIMATED | UNKNOWN
+   816→  createdAt      DateTime @default(now())
+   817→
+   818→  organization Organization @relation(fields: [organizationId], references: [id])
+   819→
+   820→  @@index([organizationId, createdAt])
+   821→}
+   822→
+   823→// ─────────────────────────────────────────────────────────────────────
+   824→// AUDIT — tamper-evident append-only trail (hash chain)
+   825→// ─────────────────────────────────────────────────────────────────────
+   826→
+   827→model AuditEvent {
+   828→  id             String   @id @default(cuid())
+   829→  organizationId String?
+   830→  actorType      String // USER | AGENT | SYSTEM | SERVICE | PROVIDER
+   831→  actorId        String?
+   832→  actorLabel     String?
+   833→  action         String // e.g. ledger.posted, payment.settled, auth.login, policy.evaluated
+   834→  resourceType   String
+   835→  resourceId     String?
+   836→  description    String
+   837→  metadata       String? // JSON
+   838→  severity       String   @default("INFO") // INFO | WARN | CRITICAL
+   839→  correlationId  String?
+   840→  prevHash       String?
+   841→  hash           String // sha256(prevHash + canonical fields) — tamper-evident chain
+   842→  createdAt      DateTime @default(now())
+   843→
+   844→  @@index([organizationId, createdAt])
+   845→  @@index([action])
+   846→  @@index([severity])
+   847→}
+   848→

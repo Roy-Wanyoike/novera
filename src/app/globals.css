@@ -1,0 +1,182 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* ── NOVERA LIGHT ─────────────────────────────────────────────── */
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.985 0.003 106);
+  --foreground: oklch(0.18 0.01 160);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.01 160);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.01 160);
+  --primary: oklch(0.62 0.135 162);
+  --primary-foreground: oklch(0.985 0.01 162);
+  --secondary: oklch(0.955 0.008 106);
+  --secondary-foreground: oklch(0.24 0.015 160);
+  --muted: oklch(0.955 0.005 106);
+  --muted-foreground: oklch(0.52 0.015 160);
+  --accent: oklch(0.93 0.04 162);
+  --accent-foreground: oklch(0.24 0.03 162);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.9 0.008 106);
+  --input: oklch(0.9 0.008 106);
+  --ring: oklch(0.62 0.135 162);
+  --chart-1: oklch(0.62 0.135 162);
+  --chart-2: oklch(0.72 0.12 178);
+  --chart-3: oklch(0.78 0.14 85);
+  --chart-4: oklch(0.55 0.12 260);
+  --chart-5: oklch(0.65 0.18 30);
+  --sidebar: oklch(0.975 0.005 106);
+  --sidebar-foreground: oklch(0.18 0.01 160);
+  --sidebar-primary: oklch(0.62 0.135 162);
+  --sidebar-primary-foreground: oklch(0.985 0.01 162);
+  --sidebar-accent: oklch(0.94 0.02 162);
+  --sidebar-accent-foreground: oklch(0.24 0.03 162);
+  --sidebar-border: oklch(0.9 0.008 106);
+  --sidebar-ring: oklch(0.62 0.135 162);
+  --success: oklch(0.62 0.135 162);
+  --success-foreground: oklch(0.985 0.01 162);
+  --warning: oklch(0.78 0.14 85);
+  --warning-foreground: oklch(0.25 0.05 85);
+  --danger: oklch(0.577 0.245 27.325);
+  --danger-foreground: oklch(0.985 0.01 27);
+}
+
+/* ── NOVERA DARK (default) ───────────────────────────────────── */
+.dark {
+  --background: oklch(0.145 0.012 165);
+  --foreground: oklch(0.95 0.008 160);
+  --card: oklch(0.19 0.014 165);
+  --card-foreground: oklch(0.95 0.008 160);
+  --popover: oklch(0.21 0.014 165);
+  --popover-foreground: oklch(0.95 0.008 160);
+  --primary: oklch(0.72 0.15 162);
+  --primary-foreground: oklch(0.16 0.02 162);
+  --secondary: oklch(0.26 0.015 165);
+  --secondary-foreground: oklch(0.92 0.01 160);
+  --muted: oklch(0.25 0.012 165);
+  --muted-foreground: oklch(0.62 0.015 160);
+  --accent: oklch(0.29 0.03 165);
+  --accent-foreground: oklch(0.93 0.02 162);
+  --destructive: oklch(0.65 0.2 25);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.72 0.15 162);
+  --chart-1: oklch(0.72 0.15 162);
+  --chart-2: oklch(0.75 0.12 178);
+  --chart-3: oklch(0.8 0.13 85);
+  --chart-4: oklch(0.7 0.11 260);
+  --chart-5: oklch(0.68 0.17 30);
+  --sidebar: oklch(0.165 0.013 165);
+  --sidebar-foreground: oklch(0.93 0.008 160);
+  --sidebar-primary: oklch(0.72 0.15 162);
+  --sidebar-primary-foreground: oklch(0.16 0.02 162);
+  --sidebar-accent: oklch(0.24 0.02 165);
+  --sidebar-accent-foreground: oklch(0.93 0.02 162);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.72 0.15 162);
+  --success: oklch(0.72 0.15 162);
+  --success-foreground: oklch(0.16 0.02 162);
+  --warning: oklch(0.78 0.13 85);
+  --warning-foreground: oklch(0.2 0.04 85);
+  --danger: oklch(0.62 0.19 25);
+  --danger-foreground: oklch(0.97 0.01 25);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "tnum" 1;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 30%, transparent);
+  }
+}
+
+/* Financial figures use tabular numbers and monospace styling */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.novera-gradient-text {
+  background: linear-gradient(120deg, var(--primary), oklch(0.75 0.12 178));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.novera-glow {
+  box-shadow: 0 0 40px -12px color-mix(in oklab, var(--primary) 55%, transparent);
+}
+
+.grid-bg {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--foreground) 4%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--foreground) 4%, transparent) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+/* Custom scrollbar for long lists */
+.scroll-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--muted-foreground) 35%, transparent);
+  border-radius: 999px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
