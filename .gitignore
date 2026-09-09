@@ -76,4 +76,5 @@ db/test.db*
 tool-results/
 mini-services/
 scripts/gh-bin/
+.tmp/
 !.env.example
