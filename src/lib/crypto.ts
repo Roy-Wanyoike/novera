@@ -3,6 +3,18 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'crypto'
 /**
  * Pure crypto primitives (no Next.js request context) — shared by the
  * auth service, the API-key service and the seed importer.
+ *
+ * PASSWORD SCHEME — "scrypt:v1" (documented, versioned, migratable):
+ *   scryptSync(password, 16-byte random salt, 64-byte key) with Node's
+ *   default cost parameters (N=16384, r=8, p=1).
+ *
+ * The stored prefix carries the scheme name so parameters can be raised
+ * later without breaking existing hashes: `verifyPassword` parses the
+ * prefix, and a future `scrypt2:` prefix (OWASP recommends N=2^17 for
+ * high-value interactive logins) verifies with new parameters while old
+ * hashes keep verifying under `scrypt:` and rehash on next login.
+ * Reference build: N=16384 keeps login latency well under 100ms on the
+ * sandbox; production hardening item — raise N and rehash on login.
  */
 
 export function hashPassword(password: string): string {
