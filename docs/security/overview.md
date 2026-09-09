@@ -62,7 +62,18 @@ Concrete enforcement points worth knowing:
 - The public checkout (`/pay/{token}`) resolves the link by token (unscoped — that's
   what a public token *is*) but exposes only org name, link label and amount; the
   payment-amount truth for FIXED links is taken from the server-stored row, never from
-  the client.
+  the client. CUSTOM/DONATION/TIP amounts are **capped server-side** (platform ceiling:
+  1,000,000 major units in the link's currency) and submissions are **rate-limited per
+  link token + client IP** (5 per 10 minutes, in-memory fixed window) — flooding a
+  public form cannot flood payments, risk evaluations, audit events or webhook
+  deliveries. Refusals surface as friendly inline checkout errors, not crashes.
+- **Webhook endpoint registration is SSRF-guarded** (`src/lib/ssrf.ts`, enforced in
+  both the REST route and the dashboard action): URLs must be public HTTPS —
+  loopback/localhost, link-local (169.254/16 — cloud metadata), RFC1918, CGNAT
+  100.64/10, unique-local/link-local IPv6, IPv4-mapped IPv6, URLs with credentials and
+  hostnames that RESOLVE into private ranges are all rejected (422 `SSRF_GUARD`);
+  unresolvable hostnames are rejected fail-closed. Delivery is simulated in TEST mode
+  today — the guard is enforced now so the contract holds when real egress lands.
 
 Testing this is part of the red-team checklist (§6, "cross-tenant").
 
@@ -76,14 +87,20 @@ verify = re-derive candidate and timingSafeEqual against the stored hash
 ```
 
 Failed logins produce a generic `Invalid email or password` plus a `WARN` audit event
-(`auth.login.failed`) — no user enumeration via error differentiation. Successful
+(`auth.login.failed`) — no user enumeration via error differentiation. **Unknown
+emails still burn a full scrypt verification against a dummy hash**, so response
+latency does not reveal which emails are registered (timing equalization). **Login
+attempts are throttled per email** — 5 failures within 15 minutes locks that email
+out with a clear "Too many failed sign-in attempts" message (a successful login
+resets the window; the limiter counts failures, not attempts). Successful
 logins/registrations are audited (`auth.login`, `auth.registered`).
 
-**Sessions — opaque tokens, revocable** (`src/lib/auth.ts`):
+**Sessions — opaque tokens, stored hashed, revocable** (`src/lib/auth.ts`):
 
 | Property | Value |
 |---|---|
 | Token | 32 random bytes, hex — no JWT, nothing client-decodable |
+| Storage | **`sha256(token)` only** (`Session.tokenHash`) — the raw token exists solely in the cookie; a read-only DB leak yields no replayable sessions |
 | Cookie | `novera_session`, `httpOnly`, `sameSite=lax`, `secure` in production, `path=/` |
 | TTL | 7 days (`expiresAt`), enforced on every resolve |
 | Revocation | `revokedAt` on the Session row (logout) — resolution also requires the user to be `ACTIVE` |
@@ -110,10 +127,12 @@ Keys are the machine equivalent of sessions, with the same hashed-at-rest discip
   header, `retryAfterSec` and `resetAt` in the body, and `X-RateLimit-Limit` on every
   authenticated response.
 - **Request logs**: every authenticated outcome (including 429/403/5xx) is written to
-  `ApiRequestLog` — method, path, status, duration, redacted request body
-  (fields matching `/secret|password|token|key/i` become `***`), error code. 401s are
-  the exception: the org isn't resolvable from a bad key, so there's nothing safe to
-  attribute the row to.
+  `ApiRequestLog` — method, path, status, duration, **deep-redacted** request body
+  (fields matching `/secret|password|token|key|authorization|credential|cvv|pan/i`
+  become `***` at EVERY nesting level up to depth 4; long strings truncate at 512),
+  error code. 401s are the exception for the request log (the org isn't resolvable from
+  a bad key) — instead, failed key authentication appends an `apikey.auth.failed`
+  WARN event to the tamper-evident audit chain.
 - Key status is checked on every request: `REVOKED` keys fail authentication even
   though their hash matches.
 

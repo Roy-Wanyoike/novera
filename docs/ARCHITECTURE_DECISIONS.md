@@ -215,10 +215,13 @@ the security-incident runbook treats a break as the incident itself.
 
 **Consequences.** (+) Tamper-evidence with zero infra; retroactive edits cascade and
 are detectable; verification is a one-call forensic gate. (−) Reference-build
-limitations, stated honestly: ordering is `createdAt` (ms resolution, not a monotonic
-sequence), the chain is global across orgs (fine for tamper-evidence, weak for per-org
-proofs), and verification is pull-based rather than continuous. Append concurrency is
-serialized in-process (ADR-0009). Production target:
+limitations, stated honestly: the chain is global across orgs (fine for
+tamper-evidence, weak for per-org proofs), and verification is pull-based rather than
+continuous. Ordering is now a **monotonic `seq`** (SQLite AUTOINCREMENT, the primary
+key) — `createdAt`'s millisecond resolution made tie-ordering ambiguous and produced
+false tamper alarms on fast concurrent appends; `seq` always matches insertion order,
+so verification is deterministic. Append concurrency is serialized in-process
+(ADR-0009). Production target:
 per-org sequence numbers + periodic anchored checkpoints (external timestamping).
 
 ---
@@ -309,7 +312,9 @@ reintroduces the fork on commit interleaving.
 1. **In-process append lock.** `recordAudit` serializes every append through a
    module-level async lock (promise chain) — the read-last + insert pair is atomic
    with respect to all other appends in the process. Concurrency tests fire 12
-   parallel appends and assert one unbroken chain.
+   parallel appends and assert one unbroken chain. The total order is the monotonic
+   `seq` primary key (SQLite AUTOINCREMENT), so verification walks insertion order
+   deterministically even when appends share a `createdAt` millisecond.
 2. **Appends are strictly post-commit.** `recordAudit` no longer accepts a transaction
    client; callers append after their transaction commits. `postTransaction(input, tx)`
    therefore does NOT emit `ledger.transaction.posted` when a transaction client is

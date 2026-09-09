@@ -46,6 +46,8 @@ Authorization: Bearer nv_test_…        # or nv_live_…
   | `INVALID_ARGUMENT` | 400 | Validation failure (message says which field and why) |
   | `NOT_FOUND` | 404 | Resource doesn't exist *in this organization* |
   | `PAYMENT_ERROR` | 422 | Kernel rejected the operation (e.g. no provider for method, idempotency-key collision across orgs) |
+  | `IDEMPOTENCY_ERROR` | 422 | An idempotency key was replayed with a **different request body** (see §3) |
+  | `SSRF_GUARD` | 422 | Webhook endpoint URL rejected by the SSRF guard (private/loopback/link-local target, or unresolvable host — fail-closed) |
   | `INTERNAL` | 500 | Unexpected failure (logged server-side, no stack leak) |
 
 - **Money is decimal-string minor units**, always: `"amountMinor": "125000"` for
@@ -59,9 +61,15 @@ Authorization: Bearer nv_test_…        # or nv_live_…
 ## 3. Idempotency
 
 `POST /api/v1/payments` accepts an idempotency key via the `idempotencyKey` body field
-or the `Idempotency-Key` header (≤255 chars). Replay with the same key returns the
-*original* payment object (HTTP 200, not 201) with **no new side effects** — no second
-rail submission, no second ledger posting. Under the hood the payment row and its
+or the `Idempotency-Key` header (≤255 chars). Replay with the same key **and the same
+body** returns the *original* payment object (HTTP 200, not 201) with **no new side
+effects** — no second rail submission, no second ledger posting. The key is bound to a
+sha256 fingerprint of the canonical request body (`amount, currency, method, direction,
+customerEmail, description, invoiceId, paymentLinkId`): replaying the same key with a
+**different body** returns **422 `IDEMPOTENCY_ERROR`** (Stripe-style contract — the
+response names the original payment reference). Concurrent duplicates that lose the
+unique-key race are re-read and returned as replays (200), never 500s. Under the hood
+the payment row and its
 settlement posting both carry unique idempotency constraints
 ([../architecture/financial-kernel.md §5](../architecture/financial-kernel.md#5-idempotency-keys)).
 
@@ -69,7 +77,8 @@ settlement posting both carry unique idempotency constraints
 
 | Method & path | Scopes (ANY-of) | Success | Notes |
 |---|---|---|---|
-| `GET /api/v1/health` | — (public) | 200 | Liveness: `{status, mode, time, service, version}`. Not logged. |
+| `GET /api/v1/health` | — (public) | 200 | Liveness: `{status, mode, time, service, version}` — dependency-free by design. Not logged. |
+| `GET /api/v1/health/ready` | — (public) | 200 / 503 | Readiness: probes the database (`SELECT 1`); 503 `NOT_READY` = do not route traffic. Not logged. |
 | `GET /api/v1/openapi.json` | — (public) | 200 | The OpenAPI 3.1 document itself (60s cache). |
 | `GET /api/v1/wallets` | `wallets:read` | 200 | Org wallets with **authoritative ledger balances** (`ledgerMinor`). |
 | `GET /api/v1/balances` | `balances:read` · `wallets:read` | 200 | Per-currency roll-up: `ledgerMinor`, `availableMinor` (ledger − active holds), `reservedMinor`. Pending is never available. |
@@ -77,9 +86,9 @@ settlement posting both carry unique idempotency constraints
 | `GET /api/v1/payments` | `payments:write` · `wallets:read` | 200 | `?status=` (validated against the payment status union), `?limit=` 1–100. |
 | `POST /api/v1/payments` | `payments:write` | 201 / 200-replay | Body: `{amount (decimal string), currency, method, customerEmail?, description?, idempotencyKey?}`. Runs risk before the rail; settlement posts the ledger leg and emits signed webhooks. |
 | `GET /api/v1/payments/{id}` | `payments:write` · `wallets:read` | 200 | `{id}` accepts the internal id **or** the `pay_…` reference. Full timeline + risk + provider detail. 404 for foreign orgs. |
-| `GET /api/v1/invoices` | `payments:write` · `wallets:read` | 200 | Invoices with totals and payment state. |
+| `GET /api/v1/invoices` | `payments:write` · `wallets:read` | 200 | Invoices with totals and payment state. `?limit=` 1–100 (default 25) — bounded like every list endpoint. |
 | `GET /api/v1/webhooks/endpoints` | `webhooks:manage` | 200 | Endpoint list — **never** returns secrets. |
-| `POST /api/v1/webhooks/endpoints` | `webhooks:manage` | 201 | `{url (HTTPS required), events (valid catalog names or "*"), description?}`. Returns the `nvwhsec_…` signing secret exactly once. |
+| `POST /api/v1/webhooks/endpoints` | `webhooks:manage` | 201 | `{url (HTTPS required, SSRF-guarded — private/loopback/link-local/unresolvable targets are rejected 422), events (valid catalog names or "*", ≤20), description? (≤200 chars)}`. Returns the `nvwhsec_…` signing secret exactly once. |
 
 Valid payment methods: `MPESA · BANK · CARD · WALLET · USDC`. Valid payment statuses:
 `CREATED · AUTHORIZED · PROCESSING · PENDING · SETTLED · FAILED · CANCELLED · REFUNDED ·

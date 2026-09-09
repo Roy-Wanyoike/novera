@@ -78,7 +78,23 @@ describe('ledger · structural validation (fail-closed)', () => {
     ).rejects.toThrow(LedgerError)
   })
 
-  it('rejects per-currency imbalance in multi-currency postings', async () => {
+  it('rejects mixed-currency transactions outright (single-currency by design)', async () => {
+    await expect(
+      postTransaction({
+        organizationId: org.id,
+        description: 'mixed currencies in one txn',
+        source: 'FX_CONVERSION',
+        entries: [
+          debit(wallet.accountId, 100n, 'KES'),
+          credit(coa['SALES'], 100n, 'KES'),
+          debit(coa['FX_CLEARING'], 100n, 'USD'),
+          credit(coa['FX_CLEARING'], 100n, 'USD'),
+        ],
+      })
+    ).rejects.toThrow(/single-currency/)
+  })
+
+  it('rejects per-currency imbalance in multi-currency postings (rejected as mixed before balancing)', async () => {
     await expect(
       postTransaction({
         organizationId: org.id,
@@ -91,7 +107,7 @@ describe('ledger · structural validation (fail-closed)', () => {
           credit(coa['FX_CLEARING'], 40n, 'USD'),
         ],
       })
-    ).rejects.toThrow(/unbalanced transaction in USD/)
+    ).rejects.toThrow(LedgerError)
   })
 
   it('rejects postings with fewer than two entries', async () => {
@@ -542,7 +558,7 @@ describe('ledger · audit chain integrity (concurrent appends never fork)', () =
         description: `sequential append probe ${i}`,
       })
     }
-    const events = await db.auditEvent.findMany({ orderBy: { createdAt: 'asc' } })
+    const events = await db.auditEvent.findMany({ orderBy: { seq: 'asc' } })
     expect(events.length).toBe(5)
     expect(events[0].prevHash).toBe('GENESIS')
     for (let i = 1; i < events.length; i++) {

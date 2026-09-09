@@ -501,7 +501,7 @@ async function main() {
   console.log(`   trial balance (acme): debits ${tb.totalDebits} = credits ${tb.totalCredits} → ${tb.balanced ? 'OK' : 'BROKEN'}`)
   console.log(`   trial balance (solar): ${tbSolar.balanced ? 'OK' : 'BROKEN'}`)
   console.log(`   audit chain: ${chain.verified}/${chain.totalEvents} verified → ${chain.valid ? 'VALID' : 'BROKEN'}`)
-  if (!tb.balanced || !chain.valid) {
+  if (!tb.balanced || !tbSolar.balanced || !chain.valid) {
     throw new Error('SEED FAILED: financial invariants violated')
   }
 

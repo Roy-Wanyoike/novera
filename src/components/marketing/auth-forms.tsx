@@ -20,6 +20,7 @@ type FormState = { error: string | null }
 function friendlyLoginError(e: unknown): string {
   const message = e instanceof Error ? e.message : ''
   if (/required/i.test(message)) return 'Enter both your email and password to continue.'
+  if (/too many failed sign-in attempts/i.test(message)) return message
   if (/suspended/i.test(message)) return 'This account is suspended. Contact your organization owner.'
   return 'Invalid email or password. New here? Jump into the interactive demo below.'
 }
