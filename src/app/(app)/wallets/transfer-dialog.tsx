@@ -63,6 +63,12 @@ export function TransferDialog({
   const [toId, setToId] = React.useState('')
   const [amount, setAmount] = React.useState('')
   const [note, setNote] = React.useState('')
+  // Idempotency key: one UUID per logical submission. Retries of the same
+  // submission (network failure, double click, re-submit after an error)
+  // reuse the key, so executeTransfer replays the original posting instead
+  // of double-moving money. A fresh key is drawn when the form resets
+  // (dialog closed or a successful post) — that is a NEW submission.
+  const [idemKey, setIdemKey] = React.useState(() => crypto.randomUUID())
 
   const from = wallets.find((w) => w.id === fromId)
   const toWallets = from ? wallets.filter((w) => w.currency === from.currency) : wallets
@@ -74,6 +80,7 @@ export function TransferDialog({
     setAmount('')
     setNote('')
     setError(null)
+    setIdemKey(crypto.randomUUID())
   }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -87,6 +94,7 @@ export function TransferDialog({
         toWalletId: toId,
         amount,
         note: note || undefined,
+        idempotencyKey: idemKey,
       })
       if (result.ok) {
         toast({

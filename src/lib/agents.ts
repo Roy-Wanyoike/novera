@@ -1,7 +1,8 @@
 import { db } from '@/lib/db'
 import { Money } from '@novera/money'
 import { evaluatePolicy, buildAgentGuardrailRules, type PolicyFacts, type PolicyRule } from '@novera/policy'
-import { postTransaction, walletLedgerBalance } from '@/lib/ledger'
+import { postTransaction } from '@/lib/ledger'
+import { availableBalanceMinor } from '@/lib/transfers'
 import { recordAudit } from '@/lib/audit'
 import { ref } from '@/lib/ids'
 import { emitWebhookEvent } from '@/lib/webhooks'
@@ -41,6 +42,44 @@ export class AgentError extends Error {
     super(`[agents] ${message}`)
     this.name = 'AgentError'
   }
+}
+
+// ── daily-spend window (derived, never cached) ──────────────────────
+
+/** Start of the current UTC day (the daily-limit window boundary). */
+function startOfUtcDay(): Date {
+  const now = new Date()
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+}
+
+/**
+ * The agent's spend TODAY (UTC window), derived from ledger entries.
+ *
+ * The `Agent.dailySpendMinor` column is a lifetime running total — it
+ * never resets, so gating the daily limit on it turns a "daily" ceiling
+ * into a lifetime ceiling. Matching the kernel's "balances derive from
+ * entries" philosophy, the windowed spend is computed from the ledger:
+ * agent money movement posts with `source: 'AGENT'` and
+ * `actorId = agent.id` as Dr destination / Cr source wallet — the CREDIT
+ * legs ARE the spend. Reversals are separate `REVERSAL`-source
+ * transactions and deliberately do not claw back the day's envelope
+ * (fail-closed: a reversed spend still consumed the window).
+ */
+export async function agentSpendToday(organizationId: string, agentId: string): Promise<bigint> {
+  const agg = await db.ledgerEntry.aggregate({
+    where: {
+      direction: 'CREDIT',
+      transaction: {
+        organizationId,
+        source: 'AGENT',
+        actorId: agentId,
+        postedAt: { gte: startOfUtcDay() },
+        status: { in: ['POSTED', 'REVERSED'] },
+      },
+    },
+    _sum: { amountMinor: true },
+  })
+  return agg._sum.amountMinor ?? 0n
 }
 
 function agentPolicyRules(agent: {
@@ -128,7 +167,16 @@ export async function proposeAgentIntent(input: ProposeIntentInput) {
     amountMinor: input.payload.amountMinor ?? undefined,
     currency: input.payload.currency ?? undefined,
     merchant: input.payload.merchant ?? undefined,
-    dailySpendMinor: agent.dailySpendMinor,
+    // Daily limit is a per-UTC-DAY ceiling, so the guarded spend must be
+    // windowed, not the lifetime `dailySpendMinor` counter (it never
+    // resets — gating on it made the daily limit a lifetime limit). The
+    // fact carries the PROJECTED windowed cumulative spend (today's
+    // ledger-derived spend + this proposal's amount) so the policy rule
+    // "cumulative daily spend must stay under the daily limit" holds
+    // AFTER the intent executes, not just before it.
+    dailySpendMinor:
+      (await agentSpendToday(input.organizationId, agent.id)) +
+      (input.payload.amountMinor ?? 0n),
     perTransactionLimitMinor: agent.perTransactionLimitMinor ?? undefined,
     dailyLimitMinor: agent.dailyLimitMinor ?? undefined,
     requiresApprovalAboveMinor: agent.requiresApprovalAboveMinor,
@@ -246,10 +294,28 @@ export async function executeAgentIntent(intentId: string) {
         wallets.find((w) => w.type === 'SUPPLIER' && w.currency === amount.currency)
 
       if (fromWallet && toWallet) {
-        const available = await walletLedgerBalance(fromWallet.id)
+        // Daily-limit window enforcement (authoritative). Proposal-time
+        // policy uses the projected windowed spend, but the approval →
+        // execution gap can span hours — re-derive the window at the
+        // moment money moves. Same strict semantics: cumulative spend
+        // including this intent must stay UNDER the daily limit.
+        if (intent.agent.dailyLimitMinor !== null) {
+          const spentToday = await agentSpendToday(intent.organizationId, intent.agent.id)
+          if (spentToday + amount.minor >= intent.agent.dailyLimitMinor) {
+            throw new AgentError(
+              `daily spend limit exceeded: spent ${spentToday} ${amount.currency} today, ` +
+                `this intent adds ${amount.minor} — cumulative must stay under ${intent.agent.dailyLimitMinor}`
+            )
+          }
+        }
+        // Funds check honors holds (financial-kernel.md §6): reserved
+        // money is not spendable, so the guard reads the AVAILABLE
+        // balance (ledger minus ACTIVE, non-expired holds), not the raw
+        // ledger balance.
+        const available = await availableBalanceMinor(fromWallet.id)
         if (available < amount.minor) {
           throw new AgentError(
-            `insufficient funds in ${fromWallet.label}: available ${available}, requested ${amount.minor}`
+            `insufficient available funds in ${fromWallet.label}: available ${available} (ledger minus active holds), requested ${amount.minor}`
           )
         }
         const txn = await postTransaction({

@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { recordAudit } from '@/lib/audit'
+import { RECON_CASE_TYPES, type ReconCaseType } from '@novera/domain'
 
 /**
  * RECONCILIATION — first-class operations domain.
@@ -8,6 +9,9 @@ import { recordAudit } from '@/lib/audit'
  * statements (ProviderTransaction). Discrepancies become cases in the
  * operations queue. Nothing is auto-repaired silently — every resolution
  * is an explicit operator action with an audit record.
+ *
+ * Case types are drawn from RECON_CASE_TYPES (@novera/domain) — the
+ * canonical vocabulary. The scan never writes a type outside it.
  */
 
 export interface ReconScanSummary {
@@ -15,7 +19,7 @@ export interface ReconScanSummary {
   matched: number
   discrepancies: number
   newCases: number
-  types: Record<string, number>
+  types: Partial<Record<ReconCaseType, number>>
 }
 
 export async function runReconciliationScan(organizationId: string): Promise<ReconScanSummary> {
@@ -56,12 +60,12 @@ export async function runReconciliationScan(organizationId: string): Promise<Rec
 
     // duplicate provider statements for one payment
     if (providerTxns.length > 1) {
-      const type = 'AMOUNT_MISMATCH'
+      const type: ReconCaseType = 'DUPLICATE'
       summary.discrepancies++
-      summary.types['DUPLICATE'] = (summary.types['DUPLICATE'] ?? 0) + 1
+      summary.types[type] = (summary.types[type] ?? 0) + 1
       for (const pt of providerTxns.slice(1)) {
-        if (!existing.has(caseKey(payment.id, 'DUPLICATE', pt.id))) {
-          await createCase(organizationId, payment.id, pt.id, pt.providerId, 'DUPLICATE' as never, {
+        if (!existing.has(caseKey(payment.id, type, pt.id))) {
+          await createCase(organizationId, payment.id, pt.id, pt.providerId, type, {
             ledger: { reference: payment.reference },
             provider: { externalReference: pt.externalReference, note: 'duplicate provider statement' },
           }, 'MEDIUM')
@@ -71,7 +75,7 @@ export async function runReconciliationScan(organizationId: string): Promise<Rec
     }
 
     const pt = providerTxns[0]
-    const diffs: { type: string; detail: unknown; severity: string }[] = []
+    const diffs: { type: ReconCaseType; detail: unknown; severity: string }[] = []
 
     if (pt.amountMinor !== payment.amountMinor) {
       diffs.push({
@@ -138,9 +142,20 @@ export async function runReconciliationScan(organizationId: string): Promise<Rec
     }
   }
 
-  // provider statements referencing unknown payments
+  // provider statements referencing unknown payments. ProviderTransaction
+  // rows carry no organizationId (rail providers are global), so the org
+  // scope is DERIVED: only statements from providers this organization
+  // actually transacts with can be attributed to it — a scan for org A
+  // must not sweep org B's orphan statements off the same rail into A's
+  // operations queue.
+  const orgProviders = await db.payment.findMany({
+    where: { organizationId, providerId: { not: null } },
+    select: { providerId: true },
+    distinct: ['providerId'],
+  })
+  const orgProviderIds = orgProviders.map((p) => p.providerId!)
   const orphans = await db.providerTransaction.findMany({
-    where: { paymentId: null, reconciliationStatus: 'UNMATCHED' },
+    where: { paymentId: null, reconciliationStatus: 'UNMATCHED', providerId: { in: orgProviderIds } },
     take: 50,
   })
   for (const pt of orphans) {
@@ -173,10 +188,17 @@ async function createCase(
   paymentId: string | null,
   providerTransactionId: string | null,
   providerId: string | null,
-  type: string,
+  type: ReconCaseType,
   detail: unknown,
   severity: string
 ) {
+  // Belt-and-braces: the type signature already restricts callers to
+  // RECON_CASE_TYPES members; a runtime guard keeps any future bypass
+  // (the old `'DUPLICATE' as never` pattern) from silently writing an
+  // off-vocabulary case type into the operations queue.
+  if (!RECON_CASE_TYPES.includes(type)) {
+    throw new Error(`invalid recon case type: ${type}`)
+  }
   await db.reconciliationCase.create({
     data: {
       organizationId,
@@ -228,5 +250,4 @@ export async function resolveCase(
     description: `Case ${c.type} ${resolution.toLowerCase()}: ${note}`,
     severity: 'WARN',
   })
-  await db.webhookEndpoint.findMany({ where: { organizationId } })
 }
