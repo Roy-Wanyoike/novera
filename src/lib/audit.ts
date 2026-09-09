@@ -1,6 +1,5 @@
 import { createHash } from 'crypto'
 import { db } from '@/lib/db'
-import type { Prisma } from '@prisma/client'
 
 /**
  * Tamper-evident audit trail.
@@ -8,6 +7,19 @@ import type { Prisma } from '@prisma/client'
  * Each event's hash = sha256(prevHash ‖ canonical fields). Any retroactive
  * modification breaks the chain and is detectable via verifyAuditChain().
  * Events are append-only — the application never updates or deletes them.
+ *
+ * CONCURRENCY CONTROL: the read-last-hash + append pair is serialized by an
+ * in-process async lock. Without it, two concurrent appends read the same
+ * prevHash and the chain forks — verifyAuditChain() then reports a tamper
+ * break on a benign concurrent write. Audit appends are strictly
+ * POST-COMMIT: callers never append inside an uncommitted caller
+ * transaction (an uncommitted row is invisible to the next append's
+ * prevHash read, which reintroduces the fork on commit interleaving).
+ *
+ * Production (PostgreSQL) target: replace the in-process lock with a
+ * database-level serialization — pg_advisory_xact_lock(hash_chain) around
+ * the read-last + insert, or a dedicated append table with a sequence —
+ * documented in ADR-0009.
  */
 
 export interface AuditInput {
@@ -42,34 +54,53 @@ function canonical(input: AuditInput, prevHash: string, createdAt: Date): string
   return createHash('sha256').update(payload).digest('hex')
 }
 
-export async function recordAudit(
-  input: AuditInput,
-  client?: Prisma.TransactionClient
-): Promise<string> {
-  const prisma = client ?? db
-  const last = await prisma.auditEvent.findFirst({ orderBy: { createdAt: 'desc' }, select: { hash: true } })
-  const prevHash = last?.hash ?? 'GENESIS'
-  const createdAt = new Date()
-  const hash = canonical(input, prevHash, createdAt)
-  await prisma.auditEvent.create({
-    data: {
-      organizationId: input.organizationId ?? null,
-      actorType: input.actorType,
-      actorId: input.actorId ?? null,
-      actorLabel: input.actorLabel ?? null,
-      action: input.action,
-      resourceType: input.resourceType,
-      resourceId: input.resourceId ?? null,
-      description: input.description,
-      metadata: input.metadata ? JSON.stringify(input.metadata) : null,
-      severity: input.severity ?? 'INFO',
-      correlationId: input.correlationId ?? null,
-      prevHash,
-      hash,
-      createdAt,
-    },
+// ── Append serialization (single-process reference build) ───────────
+// A module-level promise chain: every recordAudit call awaits the previous
+// append before reading the last hash. This makes the read-append pair
+// atomic with respect to other appends in this process, so the chain can
+// never fork under concurrent writes.
+let auditAppendLock: Promise<void> = Promise.resolve()
+
+async function withAuditAppendLock<T>(fn: () => Promise<T>): Promise<T> {
+  const previous = auditAppendLock
+  let release!: () => void
+  auditAppendLock = new Promise<void>((resolve) => {
+    release = resolve
   })
-  return hash
+  await previous
+  try {
+    return await fn()
+  } finally {
+    release()
+  }
+}
+
+export async function recordAudit(input: AuditInput): Promise<string> {
+  return withAuditAppendLock(async () => {
+    const last = await db.auditEvent.findFirst({ orderBy: { createdAt: 'desc' }, select: { hash: true } })
+    const prevHash = last?.hash ?? 'GENESIS'
+    const createdAt = new Date()
+    const hash = canonical(input, prevHash, createdAt)
+    await db.auditEvent.create({
+      data: {
+        organizationId: input.organizationId ?? null,
+        actorType: input.actorType,
+        actorId: input.actorId ?? null,
+        actorLabel: input.actorLabel ?? null,
+        action: input.action,
+        resourceType: input.resourceType,
+        resourceId: input.resourceId ?? null,
+        description: input.description,
+        metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+        severity: input.severity ?? 'INFO',
+        correlationId: input.correlationId ?? null,
+        prevHash,
+        hash,
+        createdAt,
+      },
+    })
+    return hash
+  })
 }
 
 export interface ChainVerification {

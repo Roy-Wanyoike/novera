@@ -211,7 +211,8 @@ the security-incident runbook treats a break as the incident itself.
 are detectable; verification is a one-call forensic gate. (−) Reference-build
 limitations, stated honestly: ordering is `createdAt` (ms resolution, not a monotonic
 sequence), the chain is global across orgs (fine for tamper-evidence, weak for per-org
-proofs), and verification is pull-based rather than continuous. Production target:
+proofs), and verification is pull-based rather than continuous. Append concurrency is
+serialized in-process (ADR-0009). Production target:
 per-org sequence numbers + periodic anchored checkpoints (external timestamping).
 
 ---
@@ -277,3 +278,41 @@ log; "fix in place" bugs are structurally impossible. (−) The books accumulate
 compensating pairs (intentional — that *is* the audit story); reversal is all-or-nothing
 per transaction, so partial corrections post their own compensating legs (as refunds
 do).
+
+---
+
+## ADR-0009: Audit-chain append serialization
+
+**Status:** Accepted
+
+**Context.** A hash chain is only as trustworthy as its append discipline. The naive
+read-last-hash → insert pair is not atomic: two concurrent appends read the same
+`prevHash`, both succeed, and the chain *forks* — `verifyAuditChain()` then reports a
+tamper break on a perfectly benign concurrent write, destroying operator trust in the
+tamper-evidence story. A second, subtler hazard: appending from inside an uncommitted
+caller transaction makes the row invisible to the next append's `prevHash` read, which
+reintroduces the fork on commit interleaving.
+
+**Decision.** Three rules, enforced in code:
+
+1. **In-process append lock.** `recordAudit` serializes every append through a
+   module-level async lock (promise chain) — the read-last + insert pair is atomic
+   with respect to all other appends in the process. Concurrency tests fire 12
+   parallel appends and assert one unbroken chain.
+2. **Appends are strictly post-commit.** `recordAudit` no longer accepts a transaction
+   client; callers append after their transaction commits. `postTransaction(input, tx)`
+   therefore does NOT emit `ledger.transaction.posted` when a transaction client is
+   supplied — the tx-scoped caller (transfers, FX, payouts, card capture) emits it via
+   `emitLedgerPostedAudit()` after commit.
+3. **Fail-visible, not fail-silent.** If the process dies between commit and append,
+   the posting exists without its audit event — a detectable gap, never a silent
+   divergence of the chain itself.
+
+**Consequences.** (+) The chain cannot fork under concurrent appends — verified by
+   test; the audit contract is explicit and compile-time enforced (the removed
+   parameter makes in-transaction appends a type error). (−) Appends serialize through
+   one lock (fine at reference-build throughput); a crash window exists between commit
+   and append (ops-detectable; a production outbox or transactional-listener pattern
+closes it). Production (PostgreSQL) target: replace the in-process lock with
+   `pg_advisory_xact_lock` around read-last + insert inside a single statement path,
+   or move to an append table with a monotonic sequence and derive the chain from it.

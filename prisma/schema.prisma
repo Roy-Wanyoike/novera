@@ -790,6 +790,10 @@ model FxQuote {
   rateScaled          BigInt // rate × 10^8
   rateScale           Int       @default(8)
   spreadBps           Int       @default(80)
+  // Quoted source amount (base currency, minor units). A locked quote is a
+  // CONTRACT: rate + amount + expiry — execution must settle exactly this
+  // amount. Nullable only for rows created before the field existed.
+  amountMinor         BigInt?
   status              String    @default("QUOTED") // QUOTED | EXECUTED | EXPIRED
   ledgerTransactionId String?
   expiresAt           DateTime?

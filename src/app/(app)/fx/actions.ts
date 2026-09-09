@@ -43,6 +43,12 @@ function friendly(error: string): string {
   if (error.includes('quote expired')) {
     return 'Quote expired — quotes live 60 seconds. Request a fresh one and confirm within the window.'
   }
+  if (error.includes('quote amount mismatch')) {
+    return 'The quoted amount changed — quotes settle exactly what was quoted. Request a fresh quote.'
+  }
+  if (error.includes('insufficient available funds')) {
+    return 'Insufficient available funds in the source wallet for this conversion.'
+  }
   if (error.includes('wallet currencies do not match')) {
     return 'The selected wallets no longer match the quote direction. Request a new quote.'
   }

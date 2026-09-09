@@ -13,6 +13,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db'
 import * as ledgerModule from '@/lib/ledger'
+import { recordAudit, verifyAuditChain } from '@/lib/audit'
 import {
   LedgerError,
   accountBalance,
@@ -505,6 +506,65 @@ describe('ledger · trial balance after 20 randomized (seeded) postings', () => 
       expect(c.debits).toBe(byCurrency.get(c.currency))
     }
     expect(txns.length).toBe(20)
+  })
+})
+
+describe('ledger · audit chain integrity (concurrent appends never fork)', () => {
+  it('12 concurrent recordAudit calls → one unbroken chain, no fork', async () => {
+    const N = 12
+    await Promise.all(
+      Array.from({ length: N }, (_, i) =>
+        recordAudit({
+          organizationId: org.id,
+          actorType: 'SYSTEM',
+          action: 'test.concurrent.append',
+          resourceType: 'TestEvent',
+          resourceId: `evt-${i}`,
+          description: `concurrent append probe ${i}`,
+        })
+      )
+    )
+
+    const chain = await verifyAuditChain()
+    expect(chain.totalEvents).toBe(N)
+    expect(chain.verified).toBe(N)
+    expect(chain.valid).toBe(true)
+  })
+
+  it('every audit row carries the hash of its predecessor — the chain is a linked list', async () => {
+    for (let i = 0; i < 5; i++) {
+      await recordAudit({
+        organizationId: org.id,
+        actorType: 'SYSTEM',
+        action: 'test.sequential.append',
+        resourceType: 'TestEvent',
+        resourceId: `seq-${i}`,
+        description: `sequential append probe ${i}`,
+      })
+    }
+    const events = await db.auditEvent.findMany({ orderBy: { createdAt: 'asc' } })
+    expect(events.length).toBe(5)
+    expect(events[0].prevHash).toBe('GENESIS')
+    for (let i = 1; i < events.length; i++) {
+      expect(events[i].prevHash).toBe(events[i - 1].hash)
+    }
+  })
+
+  it('kernel postings append their ledger.transaction.posted events post-commit and the chain stays valid', async () => {
+    for (let i = 0; i < 3; i++) {
+      await postTransaction({
+        organizationId: org.id,
+        description: `audit-chain probe ${i}`,
+        source: 'ADJUSTMENT',
+        idempotencyKey: `audit-chain-${i}`,
+        entries: [debit(wallet.accountId, 100n), credit(coa['SALES'], 100n)],
+      })
+    }
+    const posted = await db.auditEvent.count({ where: { action: 'ledger.transaction.posted' } })
+    expect(posted).toBe(3)
+    const chain = await verifyAuditChain()
+    expect(chain.valid).toBe(true)
+    expect(chain.totalEvents).toBe(3)
   })
 })
 

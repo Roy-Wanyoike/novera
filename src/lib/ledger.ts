@@ -80,7 +80,18 @@ function validateEntries(entries: LedgerEntryInput[]): void {
   }
 }
 
-/** Post a balanced transaction atomically. Idempotent by idempotencyKey. */
+/** Post a balanced transaction atomically. Idempotent by idempotencyKey.
+ *
+ * AUDIT CONTRACT — when a `tx` client is provided, this function does NOT
+ * emit the `ledger.transaction.posted` audit event: the posting lives in
+ * the CALLER'S uncommitted transaction, and audit appends must be strictly
+ * post-commit (an append from inside an uncommitted transaction is
+ * invisible to the next append's prevHash read — the chain forks on
+ * commit interleaving; see src/lib/audit.ts). The caller MUST emit the
+ * audit after commit via emitLedgerPostedAudit(). When no client is
+ * provided, this function manages its own transaction and emits the audit
+ * post-commit itself.
+ */
 export async function postTransaction(
   input: PostTransactionInput,
   tx?: Prisma.TransactionClient
@@ -155,31 +166,46 @@ export async function postTransaction(
     }
   }
 
-  const result = tx ? await run(tx) : await db.$transaction(run)
+  if (tx) {
+    // Caller owns the transaction (and therefore the commit boundary) —
+    // the caller MUST call emitLedgerPostedAudit(input, result) after
+    // commit. See the audit contract above.
+    return run(tx)
+  }
 
-  await recordAudit(
-    {
-      organizationId: input.organizationId,
-      actorType: input.actorType ?? 'SYSTEM',
-      actorId: input.actorId ?? null,
-      actorLabel: input.actorLabel ?? null,
-      action: 'ledger.transaction.posted',
-      resourceType: 'LedgerTransaction',
-      resourceId: result.id,
-      description: `${input.description} (${result.reference})`,
-      metadata: {
-        source: input.source,
-        amountMinor: result.amountMinor.toString(),
-        currency: result.currency,
-        entryCount: input.entries.length,
-        ...(input.metadata ?? {}),
-      },
-      correlationId: input.correlationId ?? null,
-    },
-    tx
-  )
-
+  const result = await db.$transaction(run)
+  await emitLedgerPostedAudit(input, result)
   return result
+}
+
+/**
+ * The `ledger.transaction.posted` audit event for a posting. Emitted by
+ * postTransaction when it managed its own transaction, and by tx-scoped
+ * callers after their transaction commits (the audit contract above).
+ */
+export async function emitLedgerPostedAudit(
+  input: PostTransactionInput,
+  result: PostedTransaction,
+  correlationId?: string | null
+): Promise<void> {
+  await recordAudit({
+    organizationId: input.organizationId,
+    actorType: input.actorType ?? 'SYSTEM',
+    actorId: input.actorId ?? null,
+    actorLabel: input.actorLabel ?? null,
+    action: 'ledger.transaction.posted',
+    resourceType: 'LedgerTransaction',
+    resourceId: result.id,
+    description: `${input.description} (${result.reference})`,
+    metadata: {
+      source: input.source,
+      amountMinor: result.amountMinor.toString(),
+      currency: result.currency,
+      entryCount: input.entries.length,
+      ...(input.metadata ?? {}),
+    },
+    correlationId: correlationId ?? input.correlationId ?? null,
+  })
 }
 
 /** Reverse a posted transaction with mirrored entries. Immutable history preserved. */
@@ -271,9 +297,15 @@ export interface AccountBalance {
   balanceMinor: bigint
 }
 
-/** Balance is always derived from entries (authoritative), never stored. */
-export async function accountBalance(accountId: string): Promise<AccountBalance> {
-  const account = await db.ledgerAccount.findUnique({
+/** Balance is always derived from entries (authoritative), never stored.
+ * Accepts an optional transaction client so balance guards can run INSIDE
+ * the posting transaction (serialized with the write — no TOCTOU window). */
+export async function accountBalance(
+  accountId: string,
+  tx?: Prisma.TransactionClient
+): Promise<AccountBalance> {
+  const prisma = tx ?? db
+  const account = await prisma.ledgerAccount.findUnique({
     where: { id: accountId },
     include: {
       _count: { select: { entries: true } },
@@ -281,7 +313,7 @@ export async function accountBalance(accountId: string): Promise<AccountBalance>
   })
   if (!account) throw new LedgerError('account not found')
 
-  const grouped = await db.ledgerEntry.groupBy({
+  const grouped = await prisma.ledgerEntry.groupBy({
     by: ['direction'],
     where: { accountId, transaction: { status: { in: ['POSTED', 'REVERSED'] } } },
     _sum: { amountMinor: true },
@@ -306,13 +338,17 @@ export async function accountBalance(accountId: string): Promise<AccountBalance>
   }
 }
 
-export async function walletLedgerBalance(walletId: string): Promise<bigint> {
-  const wallet = await db.wallet.findUnique({
+export async function walletLedgerBalance(
+  walletId: string,
+  tx?: Prisma.TransactionClient
+): Promise<bigint> {
+  const prisma = tx ?? db
+  const wallet = await prisma.wallet.findUnique({
     where: { id: walletId },
     select: { ledgerAccountId: true },
   })
   if (!wallet) throw new LedgerError('wallet not found')
-  const bal = await accountBalance(wallet.ledgerAccountId)
+  const bal = await accountBalance(wallet.ledgerAccountId, tx)
   return bal.balanceMinor
 }
 
