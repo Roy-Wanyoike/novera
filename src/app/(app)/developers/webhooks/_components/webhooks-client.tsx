@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Eye, EyeOff, Loader2, Plus, RotateCcw, ShieldAlert, ShieldCheck, Webhook as WebhookIcon } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Pause, Play, Plus, RotateCcw, ShieldAlert, ShieldCheck, Trash2, Webhook as WebhookIcon } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { timeAgo } from '@/lib/format'
 import { EVENT_NAMES } from '@novera/events'
@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 
 export interface EndpointRow {
@@ -69,6 +69,9 @@ export function WebhooksClient({
   const [payloadView, setPayloadView] = useState<DeliveryRow | null>(null)
   const [replayingId, setReplayingId] = useState<string | null>(null)
 
+  // endpoint management
+  const [busyEndpointId, setBusyEndpointId] = useState<string | null>(null)
+
   // add-endpoint form
   const [url, setUrl] = useState('')
   const [description, setDescription] = useState('')
@@ -100,6 +103,45 @@ export function WebhooksClient({
       toast({ title: 'Endpoint registered', description: 'Copy the signing secret now — it is shown only once.' })
     } finally {
       setAdding(false)
+    }
+  }
+
+  async function handleToggleEndpoint(endpoint: EndpointRow, status: 'ACTIVE' | 'PAUSED') {
+    setBusyEndpointId(endpoint.id)
+    try {
+      const { setEndpointStatusAction } = await import('../actions')
+      const res = await setEndpointStatusAction(endpoint.id, status)
+      if (!res.ok) {
+        toast({ title: 'Could not update endpoint', description: res.error, variant: 'destructive' })
+        return
+      }
+      toast({
+        title: status === 'PAUSED' ? 'Endpoint disabled' : 'Endpoint enabled',
+        description:
+          status === 'PAUSED'
+            ? 'Deliveries to this URL are paused — events will not be sent until it is enabled.'
+            : `${endpoint.url} is receiving events again.`,
+      })
+    } finally {
+      setBusyEndpointId(null)
+    }
+  }
+
+  async function handleDeleteEndpoint(endpoint: EndpointRow) {
+    setBusyEndpointId(endpoint.id)
+    try {
+      const { deleteEndpointAction } = await import('../actions')
+      const res = await deleteEndpointAction(endpoint.id)
+      if (!res.ok) {
+        toast({ title: 'Could not delete endpoint', description: res.error, variant: 'destructive' })
+        return
+      }
+      toast({
+        title: 'Endpoint deleted',
+        description: 'Its delivery history was removed with it; the deletion is on the audit chain.',
+      })
+    } finally {
+      setBusyEndpointId(null)
     }
   }
 
@@ -187,6 +229,100 @@ export function WebhooksClient({
                     {revealed[e.id] ? <EyeOff className="h-3.5 w-3.5" aria-hidden /> : <Eye className="h-3.5 w-3.5" aria-hidden />}
                   </Button>
                   {revealed[e.id] ? <CopyButton value={e.secret} className="h-7 w-7 px-0" /> : null}
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                  {busyEndpointId === e.id ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      Working…
+                    </span>
+                  ) : e.status === 'ACTIVE' ? (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1 px-2 text-xs"
+                          aria-label={`Disable endpoint ${e.url}`}
+                        >
+                          <Pause className="h-3.5 w-3.5" aria-hidden />
+                          Disable
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Disable this endpoint?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Events will stop being delivered to{' '}
+                            <span className="break-all font-mono text-xs">{e.url}</span> until it is
+                            re-enabled. Future events are not queued — check your systems after
+                            resuming. The endpoint, secret and delivery history are kept.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Keep active</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => void handleToggleEndpoint(e, 'PAUSED')}>
+                            Disable endpoint
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-xs"
+                      onClick={() => void handleToggleEndpoint(e, 'ACTIVE')}
+                      aria-label={`Enable endpoint ${e.url}`}
+                    >
+                      <Play className="h-3.5 w-3.5" aria-hidden />
+                      Enable
+                    </Button>
+                  )}
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1 border-danger/40 px-2 text-xs text-danger hover:bg-danger/10 hover:text-danger"
+                        aria-label={`Delete endpoint ${e.url}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                        Delete
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2">
+                          <Trash2 className="h-5 w-5 text-danger" aria-hidden />
+                          Delete this endpoint?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription asChild>
+                          <div className="space-y-2">
+                            <span className="block">
+                              <span className="break-all font-mono text-xs">{e.url}</span> will be
+                              removed permanently, together with its entire delivery history and its
+                              signing secret. Events will no longer be sent to this URL.
+                            </span>
+                            <span className="block">
+                              The deletion is recorded on the tamper-evident audit chain, but it
+                              cannot be undone — re-registering the URL generates a new secret.
+                            </span>
+                          </div>
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Keep endpoint</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-danger text-white hover:bg-danger/90"
+                          onClick={() => void handleDeleteEndpoint(e)}
+                        >
+                          Delete endpoint
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </div>
             ))}

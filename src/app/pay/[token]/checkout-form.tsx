@@ -24,6 +24,7 @@ import { PaymentStatusBadge } from '@/components/novera/status-badge'
 import { MoneyText } from '@/components/novera/money-text'
 import { CopyButton } from '@/components/novera/copy-button'
 import { formatMinor } from '@novera/money'
+import { fmtTime } from '@/lib/format'
 import { toast } from '@/hooks/use-toast'
 import { payLinkAction, type CheckoutResult } from './actions'
 
@@ -164,7 +165,7 @@ export function CheckoutForm({
                     · {ev.detail}
                   </span>
                   <time className="shrink-0 text-xs text-muted-foreground">
-                    {new Date(ev.at).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                    {fmtTime(ev.at)}
                   </time>
                 </li>
               ))}

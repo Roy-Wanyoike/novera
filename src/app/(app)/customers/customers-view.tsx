@@ -173,20 +173,22 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
                   {filtered.map((c) => (
                     <TableRow
                       key={c.id}
-                      tabIndex={0}
-                      role="button"
-                      aria-label={`View details for ${c.name}`}
                       onClick={() => setSelectedId(c.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          setSelectedId(c.id)
-                        }
-                      }}
                       className="cursor-pointer"
                     >
                       <TableCell className="pl-6">
-                        <div className="flex items-center gap-3">
+                        {/* Accessible target: the row click is a pointer
+                            convenience only — keyboard users open the sheet
+                            through this real button. */}
+                        <button
+                          type="button"
+                          className="flex items-center gap-3 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                          aria-label={`View details for ${c.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSelectedId(c.id)
+                          }}
+                        >
                           <span
                             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground"
                             aria-hidden
@@ -194,7 +196,7 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
                             {initials(c.name)}
                           </span>
                           <div className="font-medium">{c.name}</div>
-                        </div>
+                        </button>
                       </TableCell>
                       <TableCell>
                         {c.email ? (

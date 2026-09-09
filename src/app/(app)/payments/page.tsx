@@ -302,8 +302,12 @@ export default async function PaymentsPage({
                 </p>
                 <div className="flex items-center gap-2">
                   <Button asChild variant="outline" size="sm" disabled={page <= 1}>
-                    <Link href={pageHref(Math.max(1, page - 1))} aria-disabled={page <= 1}>
-                      <ChevronLeft className="h-4 w-4" />
+                    <Link
+                      href={pageHref(Math.max(1, page - 1))}
+                      aria-disabled={page <= 1}
+                      className={page <= 1 ? 'pointer-events-none opacity-50' : ''}
+                    >
+                      <ChevronLeft className="h-4 w-4" aria-hidden />
                       <span className="hidden sm:inline">Previous</span>
                     </Link>
                   </Button>
@@ -311,9 +315,13 @@ export default async function PaymentsPage({
                     {page} / {totalPages}
                   </span>
                   <Button asChild variant="outline" size="sm" disabled={page >= totalPages}>
-                    <Link href={pageHref(Math.min(totalPages, page + 1))} aria-disabled={page >= totalPages}>
+                    <Link
+                      href={pageHref(Math.min(totalPages, page + 1))}
+                      aria-disabled={page >= totalPages}
+                      className={page >= totalPages ? 'pointer-events-none opacity-50' : ''}
+                    >
                       <span className="hidden sm:inline">Next</span>
-                      <ChevronRight className="h-4 w-4" />
+                      <ChevronRight className="h-4 w-4" aria-hidden />
                     </Link>
                   </Button>
                 </div>

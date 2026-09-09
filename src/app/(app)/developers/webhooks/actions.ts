@@ -82,6 +82,85 @@ export async function addEndpointAction(input: EndpointRowInput): Promise<AddEnd
   return { ok: true, endpoint: { id: endpoint.id, url, events, secret } }
 }
 
+export async function setEndpointStatusAction(
+  endpointId: string,
+  status: 'ACTIVE' | 'PAUSED'
+): Promise<{ ok: boolean; error?: string; status?: string }> {
+  const session = await requireSession()
+  const orgId = session.organization.id
+
+  // IDOR guard: the endpoint must belong to this org before mutating.
+  const endpoint = await db.webhookEndpoint.findFirst({
+    where: { id: endpointId, organizationId: orgId },
+    select: { id: true, url: true, status: true, description: true },
+  })
+  if (!endpoint) {
+    return { ok: false, error: 'Endpoint not found in this organization.' }
+  }
+  if (endpoint.status === status) {
+    return { ok: true, status } // idempotent no-op
+  }
+
+  await db.webhookEndpoint.update({
+    where: { id: endpoint.id },
+    data: { status },
+  })
+  await recordAudit({
+    organizationId: orgId,
+    actorType: 'USER',
+    actorId: session.user.id,
+    actorLabel: session.user.name,
+    action: status === 'PAUSED' ? 'webhook.endpoint.disabled' : 'webhook.endpoint.enabled',
+    resourceType: 'WebhookEndpoint',
+    resourceId: endpoint.id,
+    description: `Webhook endpoint ${endpoint.url} ${status === 'PAUSED' ? 'paused' : 'resumed'} by ${session.user.name}`,
+    severity: status === 'PAUSED' ? 'WARN' : 'INFO',
+    metadata: { url: endpoint.url, from: endpoint.status, to: status, via: 'webhooks-ui' },
+  })
+  revalidatePath('/developers/webhooks')
+  return { ok: true, status }
+}
+
+export async function deleteEndpointAction(
+  endpointId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireSession()
+  const orgId = session.organization.id
+
+  // IDOR guard: the endpoint must belong to this org before deleting.
+  const endpoint = await db.webhookEndpoint.findFirst({
+    where: { id: endpointId, organizationId: orgId },
+    select: { id: true, url: true, status: true },
+  })
+  if (!endpoint) {
+    return { ok: false, error: 'Endpoint not found in this organization.' }
+  }
+
+  // Deliveries cascade at the schema level (onDelete: Cascade), but they
+  // are removed explicitly first so the guarantee holds even where FK
+  // enforcement is relaxed, and so the count can be audited.
+  const removed = await db.webhookDelivery.deleteMany({
+    where: { endpointId: endpoint.id, organizationId: orgId },
+  })
+  await db.webhookEndpoint.delete({ where: { id: endpoint.id } })
+
+  await recordAudit({
+    organizationId: orgId,
+    actorType: 'USER',
+    actorId: session.user.id,
+    actorLabel: session.user.name,
+    action: 'webhook.endpoint.deleted',
+    resourceType: 'WebhookEndpoint',
+    resourceId: endpoint.id,
+    description: `Webhook endpoint ${endpoint.url} deleted by ${session.user.name} (${removed.count} delivery record${removed.count === 1 ? '' : 's'} removed)`,
+    severity: 'WARN',
+    metadata: { url: endpoint.url, wasStatus: endpoint.status, deliveriesRemoved: removed.count, via: 'webhooks-ui' },
+  })
+  revalidatePath('/developers/webhooks')
+  revalidatePath('/developers')
+  return { ok: true }
+}
+
 export async function replayDeliveryAction(
   deliveryId: string
 ): Promise<{ ok: boolean; delivered?: boolean; error?: string }> {

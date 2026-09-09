@@ -5,6 +5,17 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Check, Loader2, Timer, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -254,19 +265,56 @@ export function ApprovalCard({ approval }: { approval: PendingApprovalView }) {
               )}
               Decline
             </Button>
-            <Button
-              type="button"
-              className="gap-1.5"
-              onClick={() => void decide('APPROVED')}
-              disabled={busy}
-            >
-              {deciding === 'APPROVED' ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : (
-                <Check className="h-4 w-4" aria-hidden />
-              )}
-              Approve &amp; execute
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button type="button" className="gap-1.5" disabled={busy}>
+                  {deciding === 'APPROVED' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Check className="h-4 w-4" aria-hidden />
+                  )}
+                  Approve &amp; execute
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Approve and execute this intent?</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-3">
+                      <p>
+                        <span className="font-medium">{approval.requesterName}</span>
+                        {approval.requesterType === 'AGENT' ? ' (agent)' : ''} is requesting{' '}
+                        {approval.amountMinor && approval.currency ? (
+                          <MoneyText
+                            minor={approval.amountMinor}
+                            currency={approval.currency}
+                            strong
+                          />
+                        ) : (
+                          'an unspecified amount'
+                        )}{' '}
+                        — {titleCase(approval.action)}
+                        {approval.toWalletLabel ? ` to ${approval.toWalletLabel}` : ''}.
+                      </p>
+                      <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2.5 text-danger">
+                        This will post ledger entries and move real funds. The posting is balanced
+                        and immutable — corrections require a reversing entry, not an edit.
+                      </p>
+                      <p>
+                        Your decision{note.trim() ? ` and note “${note.trim()}”` : ''} is recorded on
+                        the tamper-evident audit chain.
+                      </p>
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Keep pending</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => void decide('APPROVED')}>
+                    Approve &amp; execute
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </div>
       </CardContent>

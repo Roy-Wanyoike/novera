@@ -6,12 +6,13 @@ import { CircleAlert, LoaderCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { loginAction, registerAction } from '@/app/(auth)/actions'
+import { loginAction, registerAction, demoLoginAction } from '@/app/(auth)/actions'
 
 /**
- * Client wrappers around the existing (auth) server actions.
- * The actions themselves are untouched — these wrappers only add graceful
- * error capture, pending states and accessible error display via useActionState.
+ * Client wrappers around the (auth) server actions, adding graceful error
+ * capture, pending states and accessible error display via useActionState.
+ * login/register actions are untouched; demoLoginAction returns an error
+ * state instead of throwing so failures render inline here.
  */
 
 type FormState = { error: string | null }
@@ -30,6 +31,13 @@ function friendlyRegisterError(e: unknown): string {
   if (/already exists/i.test(message))
     return 'An account with this email already exists. Try signing in instead.'
   return 'We could not create your organization. Check your details and try again.'
+}
+
+function friendlyDemoError(e: unknown): string {
+  const message = e instanceof Error ? e.message : ''
+  if (/invalid email or password/i.test(message))
+    return 'The demo account is not available here. Create an organization below to explore.'
+  return 'Could not start the demo right now — please try again.'
 }
 
 /** Submit button with automatic pending state (works inside any form action). */
@@ -94,7 +102,6 @@ export function LoginForm({ initialError }: { initialError?: string }) {
           placeholder="you@company.com"
           required
           aria-invalid={hasError}
-          autoFocus
         />
       </div>
       <div className="space-y-2">
@@ -114,6 +121,25 @@ export function LoginForm({ initialError }: { initialError?: string }) {
       <SubmitButton className="w-full" pendingLabel="Signing in…">
         Sign in
       </SubmitButton>
+    </form>
+  )
+}
+
+export function DemoLoginForm(props: React.ComponentProps<typeof SubmitButton>) {
+  const [state, formAction] = useActionState<FormState, FormData>(async (_prev, _formData) => {
+    try {
+      const result = await demoLoginAction()
+      if (result.error) return { error: result.error }
+      return { error: null } // success redirects inside the action
+    } catch (e) {
+      return { error: friendlyDemoError(e) }
+    }
+  }, { error: null })
+
+  return (
+    <form action={formAction} className="space-y-3">
+      <FormError error={state.error} />
+      <SubmitButton {...props} />
     </form>
   )
 }
