@@ -2,99 +2,105 @@
 
 # Novera
 
-### Programmable Financial Infrastructure
+### Programmable Financial Infrastructure for the AI Economy
 
-**AI proposes. Policy authorizes. The ledger records.**
+**AI proposes. Policy authorizes. The ledger records. Rails settle.**
 
-Wallets · Payments · Cards · Treasury · Programmable Money · Controlled AI Agents
-on a deterministic double-entry financial kernel.
+Wallets · Payments · Cards · Treasury · FX · Programmable Money · Governed AI Agents
+— on a deterministic, double-entry financial kernel.
 
-[Live Demo](#-live-demo) · [Architecture](#-architecture) · [The Financial Kernel](#-the-financial-kernel) · [Agentic Finance](#-agentic-finance-know-your-agent) · [Developer Platform](#-developer-platform) · [Getting Started](#-getting-started)
+[One-Minute Version](#-the-one-minute-version) · [Evidence](#-what-is-actually-built) · [Architecture](#-architecture) · [Financial Kernel](#-the-financial-kernel-verified) · [Agentic Finance](#-agentic-finance-know-your-agent) · [Run It](#-run-it-in-four-commands) · [Review Path](#-for-reviewers-a-15-minute-path)
 
 </div>
 
 ---
 
-## Why Novera exists
+## 📊 The One-Minute Version
 
-Payment infrastructure for the AI economy needs a hard separation between
-**probabilistic systems** (LLMs, copilots, autonomous agents) and **deterministic
-systems** (authorization, ledgering, settlement). Novera is built as three planes:
+**The problem.** The next wave of commerce won't be typed by humans. AI agents will
+book freight, settle invoices, top up wallets and pay suppliers. But no serious
+financial system can let a probabilistic model write directly to money — and no
+regulator will allow it. Every bank-grade ledger ever built assumes a human, or a
+deterministic program, at the controls.
+
+**The solution.** Novera is a financial platform architected from first principles
+for that world. It separates the three things everyone else entangles:
 
 ```text
 ┌───────────────────────────────────────────────────────────────┐
 │                      INTELLIGENCE PLANE                       │
 │      AI · Copilot · Agents · Forecasting · Document AI        │
-│                     Can reason and propose.                   │
+│              Can reason and propose — never execute.          │
 └──────────────────────────────┬────────────────────────────────┘
                                │ intent
 ┌──────────────────────────────▼────────────────────────────────┐
 │                        CONTROL PLANE                          │
 │   Identity · Policy · Risk · Limits · Compliance · Approvals  │
-│                     Can allow or reject.                      │
+│              Can allow or reject — fail-closed.               │
 └──────────────────────────────┬────────────────────────────────┘
                                │ authorized intent
 ┌──────────────────────────────▼────────────────────────────────┐
 │                  FINANCIAL EXECUTION PLANE                    │
 │      Ledger · Payments · Cards · Rails · FX · Settlement      │
-│                    Execute and account.                       │
+│              Execute and account — immutably.                 │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-An LLM can never write to the ledger. It can only produce an **intent**, which a
-deterministic policy engine classifies as `ALLOW`, `REQUIRE_APPROVAL` or `DECLINE`
-— fail-closed. Amounts above an agent's approval threshold create a human approval
-request. Every decision, execution and state change lands in a tamper-evident,
-hash-chained audit trail.
+**The moat.** Anyone can call an LLM. The hard, defensible part — and what Novera
+actually implements — is the boundary: a deterministic policy engine, a
+double-entry kernel where `SUM(debits) = SUM(credits)` is enforced per currency,
+reversal-only corrections, idempotency on every money mutation, and a
+tamper-evident hash-chained audit trail that a regulator or auditor can recompute
+independently. That boundary is the product.
 
-This mirrors where the industry is heading: agentic payment systems keep intent
-orchestration separate from deterministic authorization and settlement.
+**The proof.** This is not slideware. The repo contains a working reference build:
+200 seeded payments flow through the *real* kernel services, 89 invariant tests
+pass in CI, the audit chain (818 events) verifies end-to-end, and a live,
+key-authenticated REST API with idempotent semantics and HMAC-signed webhooks is
+curl-able in one command. **Verify every claim yourself — the commands are below.**
+
+**The path.** Prove the model at reference-build cost, then scale it on
+infrastructure that deserves money (see [ADR-0001](docs/ARCHITECTURE_DECISIONS.md)):
+the kernel semantics, state machines and contracts in this repo map 1:1 to the
+production target — Java 25 / Spring core services, Go provider gateways, Python
+intelligence services, PostgreSQL 18 as the single source of financial truth,
+NATS JetStream events, Temporal workflows, OpenTelemetry observability.
+
+> **Honesty by design.** All providers in this build are deterministic TEST
+> simulators, clearly labeled in the UI. No real funds move. This is deliberate
+> (see [ADR-0004](docs/ARCHITECTURE_DECISIONS.md)) — the financial semantics are
+> production-shaped; the rails are simulated until there's a license to touch them.
 
 ---
 
-## 🖥️ Live Demo
+## 🔬 What Is Actually Built
+
+Every number below was re-derived from a freshly seeded database and a live test
+run — not estimated, not promised.
+
+| Claim | Evidence (live-verified) |
+|---|---|
+| Double-entry invariant holds | Trial balance balances **exactly** across all 3 currencies: KES 4,568,633.60 = 4,568,633.60 · USD · USDC |
+| Audit trail is tamper-evident | **818/818** events re-verify against the sha256 hash chain |
+| Kernel invariant tests | **89/89 passing** — money (30) · policy (18) · ledger (20) · FX (14) · payments (7) |
+| The seed *is* an integration test | 200 payments · 367 ledger transactions · 1,085 ledger entries · 209 risk evaluations · 16 reconciliation cases — all driven through the real kernel services |
+| Real product surface | 19 dashboard areas · hosted checkout · 8 REST API groups + OpenAPI document |
+| Domain model | **35 Prisma models** — ledger, payments, cards, agents, policies, webhooks, recon |
+| Engineering discipline | 8 ADRs · 4 architecture docs · 3 operator runbooks · security overview · CI gates on every PR |
+
+**Verify it yourself (≈2 minutes):**
 
 ```bash
-bun install
-bun run db:push            # apply the schema
-bun prisma/seed.ts         # deterministic sandbox dataset through the REAL kernel
-bun run dev                # http://localhost:3000
+git clone https://github.com/Roy-Wanyoike/novera.git && cd novera
+bun install && bun run db:push
+bun prisma/seed.ts        # watch it print: trial balance OK, 818/818 audit chain OK
+bun run test              # watch 89/89 invariant tests pass
 ```
 
-| | |
-|---|---|
-| **Dashboard login** | `demo@novera.africa` / `novera-demo-2026` (or the one-click demo button) |
-| **API key (TEST)** | `nv_test_demo0001secret` |
-| **Agent credential** | Atlas the procurement agent — `nv_agent_procure01secret` |
-
-**Worth trying first:**
-1. **Dashboard** → cash position, split-rule waterfall, live ops glance.
-2. **Agents → Atlas** → use the *intent simulator* to propose a KES 40,000 payment:
-   the deterministic policy gate escalates it to the human approval queue.
-3. **Approvals** → approve it and watch the intent execute **on the real ledger**.
-4. **Rules** → simulate the 10/20/70 revenue waterfall on any amount —
-   parts sum *exactly* (largest-remainder allocation, zero rounding leakage).
-5. **Payments** → open any payment and read its full transparency timeline
-   (risk evaluation → rail submission → settlement → ledger reference).
-6. **Reconciliation** → run the scan: 4 injected discrepancy classes become
-   operator cases with both sides of the story.
-7. **Copilot** → ask *"What is my cash position?"* — every answer carries a
-   provenance chip showing which deterministic tool produced the data.
-8. **Audit** → the hash-chain verifier confirms the append-only trail is intact.
-
-> **Honesty by design:** this is a sandbox reference build. All providers are
-> deterministic TEST simulators (clearly labeled `TEST MODE` in the UI), no real
-> funds move, and pending funds are never displayed as available. See
-> [ADR-0004](docs/ARCHITECTURE_DECISIONS.md).
-
-### Screenshots
-
-| | |
-|:---:|:---:|
-| ![Landing](docs/assets/landing.png) | ![Dashboard](docs/assets/dashboard.png) |
-| *Landing — the three-plane story* | *Dashboard — cash position, split waterfall, agentic activity* |
-| ![Agents](docs/assets/agents.png) | ![Ledger](docs/assets/ledger.png) |
-| *Know-Your-Agent registry with policy gates* | *Double-entry explorer with per-currency trial balance* |
+The seed script doesn't insert rows — it *executes* payments, splits, card
+authorizations, FX conversions, agent intents and refunds **through the same
+kernel services the API and UI use**, then asserts the invariants. If the kernel
+is wrong, the seed fails loudly.
 
 ---
 
@@ -115,34 +121,44 @@ flowchart LR
     I -->|proves external consistency| F
 ```
 
+Three decisions define the system:
+
 - **The ledger is the source of truth.** Balances are always *derived* from
-  immutable entries — never stored, never cached.
+  immutable entries — never stored, never cached. Redis would cache reads; it
+  would never hold a balance as fact.
 - **Providers are rails, not truth.** M-Pesa, banks, cards and USDC sit behind one
-  provider abstraction; reconciliation compares the providers' own statements
-  against the ledger, and discrepancies become operator cases (nothing auto-repairs).
-- **Full docs:** [`docs/architecture/`](docs/architecture/overview.md) ·
-  [ADRs](docs/ARCHITECTURE_DECISIONS.md) · [Security](docs/security/overview.md) ·
-  [Runbooks](docs/runbooks/)
+  provider abstraction. Reconciliation compares provider statements against the
+  ledger and turns mismatches into operator cases — nothing silently auto-repairs.
+- **AI never touches money directly.** An LLM produces an *intent*; a
+  deterministic, fail-closed policy engine classifies it `ALLOW`,
+  `REQUIRE_APPROVAL` or `DECLINE`. Unknown input is rejection, not guess.
+
+Full documentation: [`docs/architecture/`](docs/architecture/overview.md) ·
+[Financial Kernel](docs/architecture/financial-kernel.md) ·
+[Agentic Finance](docs/architecture/agentic-finance.md) ·
+[Provider Rails](docs/architecture/provider-rails.md) ·
+[ADRs](docs/ARCHITECTURE_DECISIONS.md) ·
+[Security](docs/security/overview.md) · [Runbooks](docs/runbooks/)
 
 ---
 
-## 💰 The Financial Kernel
+## 💰 The Financial Kernel (Verified)
 
 The kernel is the most important component in Novera, and it is *real* — not
-decorated CRUD. Verified properties:
+decorated CRUD over a balances table.
 
 | Invariant | Enforcement |
 |---|---|
 | `SUM(debits) = SUM(credits)` — per currency | Validated before every post; provable after via `trialBalance()` |
-| Posted records are immutable | No update/delete path exists; corrections are **reversal-only** mirror transactions |
-| Balances derive from entries | `accountBalance()` aggregates entries at read time (includes reversal netting) |
+| Posted records are immutable | No update/delete path exists; corrections are **reversal-only** mirror transactions (ADR-0008) |
+| Balances derive from entries | `accountBalance()` aggregates entries at read time, including reversal netting |
 | Every money-mutation is idempotent | Idempotency keys on postings, settlements, refunds, agent executions |
-| Money is never a float | `@novera/money`: BigInt minor units + currency table; `KES + USD` throws |
-| Allocation never leaks units | Largest-remainder `allocateBps()` — parts sum *exactly* to the source |
-| The audit trail is tamper-evident | `sha256(prevHash ‖ canonical)` hash chain; `verifyAuditChain()` recomputes it |
-| FX respects minor-unit scales | Two single-currency postings through FX clearing; scale-aware conversion |
+| Money is never a float | `@novera/money`: BigInt minor units + currency table; `KES + USD` **throws** |
+| Allocation never leaks units | Largest-remainder `allocateBps()` — parts sum *exactly* to the source, ×50 randomized test cases |
+| The audit trail is tamper-evident | `sha256(prevHash ‖ canonical)` chain; `verifyAuditChain()` recomputes all 818 events |
+| FX respects minor-unit scales | Two single-currency postings through FX clearing; scale-aware conversion (ADR-0005) |
 
-Posting semantics (from the code, not aspiration):
+Posting semantics — read from the code, not the brochure:
 
 ```ts
 // Customer pays KES 1,000.00 via M-Pesa (fee KES 48.00, net KES 952.00)
@@ -161,23 +177,19 @@ await postTransaction({
 **Proven by tests** — `bun run test`:
 
 ```text
-tests/money.test.ts              30 passing   (allocation exactness ×50 randomized cases)
-tests/policy.test.ts             18 passing   (fail-closed, boundaries, determinism ×100)
-tests/fx.test.ts                 14 passing   (scaled rates, cross-currency minor units)
-tests/ledger.invariants.test.ts  20 passing   (balance, idempotency, reversal, trial balance)
-tests/payments.invariants.test.ts 7 passing   (settlement legs, refund netting, replay safety)
+tests/money.test.ts               30 passing   (allocation exactness ×50 randomized cases)
+tests/policy.test.ts              18 passing   (fail-closed, boundaries, determinism ×100)
+tests/fx.test.ts                  14 passing   (scaled rates, cross-currency minor units)
+tests/ledger.invariants.test.ts   20 passing   (balance, idempotency, reversal, trial balance)
+tests/payments.invariants.test.ts  7 passing   (settlement legs, refund netting, replay safety)
 ```
-
-The seed itself is a proof: ~200 payments, splits, transfers, card authorizations,
-an FX conversion, agent executions and refunds are all driven **through the real
-kernel services** — the demo data *is* the integration test. After seeding:
-per-currency trial balance balanced, audit chain 818/818 valid, no negative balances.
 
 ---
 
 ## 🤖 Agentic Finance (Know Your Agent)
 
-Every AI agent is a first-class, governed financial actor:
+Every AI agent is a first-class, governed financial actor — the feature that
+makes Novera infrastructure *for the AI economy* rather than another wallet:
 
 ```text
 Agent (identity + hashed credential, shown once)
@@ -186,18 +198,26 @@ Agent (identity + hashed credential, shown once)
   → ALLOW → ledger  |  REQUIRE_APPROVAL → human queue  |  DECLINE → denied + audited
 ```
 
-- **Atlas** (procurement): pays ≤ KES 45,000/txn, ≤ KES 150,000/day; anything above
-  KES 30,000 requires human approval. Watch it get *policy-denined* at KES 220,000.
-- **Meridian** (treasury): read-only. Cannot move money at all.
+Try it in the demo: **Agents → Atlas** (procurement) proposes a KES 40,000
+payment — above its KES 30,000 approval threshold, so the deterministic gate
+escalates it to the human approval queue. Approve it, and watch the intent
+execute *on the real ledger*, with the full decision trail audited. Propose
+KES 220,000 and watch the policy hard-decline it.
+
+- **Atlas** (procurement): pays ≤ KES 45,000/txn, ≤ KES 150,000/day.
+- **Meridian** (treasury): read-only. It cannot move money at all.
 - Scopes, merchant allowlists, revocation, per-agent wallets, full intent audit.
 
-The copilot answers questions only through deterministic, org-scoped query tools —
-with a visible **provenance chip** (`GROUNDED` / `ESTIMATED` / `UNKNOWN`) on every
-answer. It never fabricates figures; projections are labeled as projections.
+The copilot answers questions only through deterministic, org-scoped query
+tools — with a visible **provenance chip** (`GROUNDED` / `ESTIMATED` /
+`UNKNOWN`) on every answer. It never fabricates figures; projections are labeled
+as projections. ([ADR-0007: LLM proposes, never executes.](docs/ARCHITECTURE_DECISIONS.md))
 
 ---
 
-## 🧩 Product Surface
+## 🖥️ The Product Surface
+
+One platform, twelve layers — the surface a real fintech operator needs:
 
 | Layer | Where it lives |
 |---|---|
@@ -213,6 +233,15 @@ answer. It never fabricates figures; projections are labeled as projections.
 | Risk & Recon | `/risk` review queue (approve-and-settle works), `/reconciliation` ops center |
 | Agentic Finance | `/agents`, `/approvals`, `/copilot` |
 | Developer Platform | `/developers` + **live REST API** below |
+
+### Screenshots
+
+| | |
+|:---:|:---:|
+| ![Landing](docs/assets/landing.png) | ![Dashboard](docs/assets/dashboard.png) |
+| *Landing — the three-plane story* | *Dashboard — cash position, split waterfall, agentic activity* |
+| ![Agents](docs/assets/agents.png) | ![Ledger](docs/assets/ledger.png) |
+| *Know-Your-Agent registry with policy gates* | *Double-entry explorer with per-currency trial balance* |
 
 ---
 
@@ -234,11 +263,13 @@ curl -s -X POST http://localhost:3000/api/v1/payments \
   }'
 ```
 
-Replaying the same `idempotencyKey` returns the **same payment** — one financial
-effect, always. Keys are stored as SHA-256 hashes (secret shown once), rate-limited
-per key, and every request is logged (redacted) for the portal's request-log viewer.
-Webhooks are HMAC-SHA256-signed with retry/dead-letter status and manual replay.
-Live OpenAPI document: `GET /api/v1/openapi.json`.
+Replay the same `idempotencyKey` and you get the **same payment** — one
+financial effect, always. Keys are stored as SHA-256 hashes (the secret is shown
+once at creation), rate-limited per key, and every request is logged (redacted)
+for the portal's request-log viewer. Webhooks are HMAC-SHA256-signed with
+retry/dead-letter status and manual replay — the seeded sandbox includes 208
+delivery records exercising exactly that lifecycle. Live OpenAPI document:
+`GET /api/v1/openapi.json`.
 
 ---
 
@@ -255,22 +286,114 @@ Live OpenAPI document: `GET /api/v1/openapi.json`.
 │   │                    #   gateway (rails), agents, cards, fx, recon, webhooks,
 │   │                    #   audit (hash chain), auth, api-auth
 │   └── app/
-│       ├── (app)/       # 24 dashboard routes (wallets → developers)
+│       ├── (app)/       # 19 dashboard areas (wallets → developers)
 │       ├── (auth)/      # login / register
 │       ├── pay/[token]/ # public hosted checkout
-│       └── api/v1/      # public REST API (10 endpoint groups + OpenAPI)
-├── prisma/              # schema (30 models) + kernel-driven deterministic seed
+│       └── api/v1/      # public REST API (8 groups + OpenAPI)
+├── prisma/              # schema (35 models) + kernel-driven deterministic seed
 ├── tests/               # 89 invariant tests (vitest)
 ├── docs/                # architecture, security, runbooks, ADRs, API notes
 └── .github/workflows/   # CI: typecheck → lint → db push → invariant tests
 ```
 
-**Reference build → production path** (see [ADRs](docs/ARCHITECTURE_DECISIONS.md)):
-this repo is a TypeScript reference implementation that proves the model — the
-kernel semantics, state machines and contracts map 1:1 to the production target:
-Java 25/Spring kernel, Go provider gateways, Python intelligence services,
-PostgreSQL 18 as source of truth, NATS JetStream events, Temporal workflows,
-OpenTelemetry observability.
+### Reference build → production path
+
+This repo is a TypeScript reference implementation that proves the model at
+minimum viable complexity — a deliberate engineering-economics decision
+([ADR-0001](docs/ARCHITECTURE_DECISIONS.md)). The semantics map 1:1 to the
+production target:
+
+| Concern | This repo (reference) | Production target |
+|---|---|---|
+| Financial truth | SQLite (dev-ergonomic, kernel-enforced) | PostgreSQL 18, same 35-model schema |
+| Kernel services | TypeScript modules | Java 25 / Spring |
+| Provider gateways | Deterministic simulators | Go services, real rails |
+| Intelligence plane | Tool-governed copilot | Python services, same boundary rules |
+| Durability / events | Idempotent transactions | NATS JetStream + Temporal workflows |
+| Observability | Structured logs + audit chain | OpenTelemetry traces/metrics/logs |
+
+---
+
+## 🚀 Run It in Four Commands
+
+```bash
+bun install
+bun run db:push               # apply schema
+bun prisma/seed.ts            # 200 payments through the REAL kernel + invariant checks
+bun run dev                   # → http://localhost:3000
+```
+
+| | |
+|---|---|
+| **Dashboard login** | `demo@novera.africa` / `novera-demo-2026` (or the one-click demo button) |
+| **API key (TEST)** | `nv_test_demo0001secret` |
+| **Agent credential** | Atlas the procurement agent — `nv_agent_procure01secret` |
+
+**Worth trying first:**
+
+1. **Dashboard** → cash position, split-rule waterfall, live ops glance.
+2. **Agents → Atlas** → use the *intent simulator* to propose a KES 40,000
+   payment: the deterministic policy gate escalates it to human approval.
+3. **Approvals** → approve it and watch the intent execute **on the real ledger**.
+4. **Rules** → simulate the 10/20/70 revenue waterfall on any amount —
+   parts sum *exactly* (largest-remainder allocation, zero rounding leakage).
+5. **Payments** → open any payment and read its full transparency timeline
+   (risk evaluation → rail submission → settlement → ledger reference).
+6. **Reconciliation** → run the scan: 4 injected discrepancy classes become
+   operator cases with both sides of the story.
+7. **Copilot** → ask *"What is my cash position?"* — every answer carries a
+   provenance chip showing which deterministic tool produced the data.
+8. **Audit** → the hash-chain verifier confirms the append-only trail is intact.
+
+---
+
+## 🔍 For Reviewers: A 15-Minute Path
+
+Reviewing this repo as an investor or an engineering candidate? Don't take the
+README's word for anything — this is the fastest way to evaluate the claim
+"real financial engineering, not a demo skin":
+
+| Minutes | Do this | What it proves |
+|---|---|---|
+| 2 | Read [`docs/ARCHITECTURE_DECISIONS.md`](docs/ARCHITECTURE_DECISIONS.md) — 8 ADRs | Decisions are documented with consequences, not vibes |
+| 3 | Read [`packages/money/src/index.ts`](packages/money/src/index.ts) | Float-free money, exact allocation, currency guards |
+| 3 | Read [`src/lib/audit.ts`](src/lib/audit.ts) | Hash-chained, append-only, independently recomputable audit |
+| 3 | Read [`packages/policy/src/index.ts`](packages/policy/src/index.ts) | Fail-closed deterministic policy DSL with unknown-input rejection |
+| 4 | `bun run test` and `bun prisma/seed.ts` | 89/89 invariants + trial balance + 818/818 audit chain — live |
+
+If you're evaluating *engineering judgment*, the most honest artifact in this
+repo is [ADR-0001](docs/ARCHITECTURE_DECISIONS.md): choosing SQLite for the
+reference build — while explicitly designing the schema and semantics for
+PostgreSQL 18 — is the kind of deliberate trade-off that separates
+infrastructure that ships from infrastructure that stalls.
+
+---
+
+## 🧭 Engineering Culture
+
+For recruiters, the practices matter more than the features:
+
+- **Invariants over anecdotes** — the test suite is named after properties
+  (`ledger.invariants`, `payments.invariants`), not screens.
+- **Honest labels** — simulated providers say `TEST MODE` in the UI; the
+  copilot's projections are labeled `ESTIMATED`; nothing pretends to be live.
+- **Documentation-as-code** — architecture docs, security overview, three
+  operator runbooks (ledger discrepancy, provider outage, security incident)
+  and ADRs live in the repo and move with the code.
+- **CI gates, not gatekeeping theater** — every PR runs typecheck, lint, a
+  fresh-database schema push and the full invariant suite
+  ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+- **Contributor discipline** — [`CONTRIBUTING.md`](CONTRIBUTING.md) encodes a PR
+  checklist that mirrors this README's claims: ledger invariants, idempotency,
+  security review, no fake finance.
+
+**Where the hard problems live** (the parts worth interviewing about):
+double-entry correctness under reversal and refund netting
+([`src/lib/ledger.ts`](src/lib/ledger.ts)), zero-leakage allocation
+([`packages/money`](packages/money)), the fail-closed policy DSL
+([`packages/policy`](packages/policy)), idempotent settlement legs
+([`src/lib/payments.ts`](src/lib/payments.ts)), and the FX two-leg clearing
+model ([`src/lib/fx.ts`](src/lib/fx.ts)).
 
 ---
 
@@ -278,32 +401,20 @@ OpenTelemetry observability.
 
 - `bunx tsc --noEmit` — zero type errors
 - `bun run lint` — clean
-- `bun run test` — 89/89 invariant tests green
-- Seed-verified: per-currency trial balance, audit hash chain, non-negative balances
-- Route smoke: 24 app pages + detail pages + checkout + 10 API groups return 200
+- `bun run test` — **89/89 invariant tests green**
+- Seed-verified: per-currency trial balance, audit hash chain (818/818),
+  non-negative balances
 - Server-side authorization everywhere; every query org-scoped (IDOR-safe);
   every mutation audited
 
----
-
-## 🚀 Getting Started
-
-```bash
-bun install
-cp .env.example .env          # DATABASE_URL defaults to ./db/custom.db
-bun run db:push               # apply schema
-bun prisma/seed.ts            # deterministic dataset via the real kernel
-bun run dev                   # → http://localhost:3000
-bun run test                  # 89 invariant tests
-```
-
-Sign in with `demo@novera.africa` / `novera-demo-2026`. Contributions follow
-[CONTRIBUTING.md](CONTRIBUTING.md) — the PR checklist mirrors the engineering
-directive (ledger invariants, idempotency, security review, no fake finance).
-
 <div align="center">
+
+---
 
 **Novera — every debit has a credit. Every AI action has a policy gate.
 Every money movement has a story you can reconstruct.**
+
+*Built by [Roy Wanyoike](https://github.com/Roy-Wanyoike). Contributions follow
+[CONTRIBUTING.md](CONTRIBUTING.md).*
 
 </div>

@@ -1,5 +1,6 @@
 {
-  "name": "nextjs_tailwind_shadcn_ts",
+  "name": "novera",
+  "description": "Programmable financial infrastructure for the AI economy — AI proposes, policy authorizes, the ledger records.",
   "version": "0.2.1",
   "private": true,
   "scripts": {
