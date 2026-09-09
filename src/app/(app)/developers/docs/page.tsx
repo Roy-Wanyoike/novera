@@ -192,7 +192,7 @@ const ENDPOINTS: {
     method: 'POST',
     path: '/api/v1/payments',
     scope: 'payments:write',
-    summary: 'Create a payment. Risk runs before the rail; settlement posts balanced ledger entries and emits webhooks.',
+    summary: 'Create a payment. Risk runs before the rail; settlement posts balanced ledger entries and emits signed webhook events (simulated TEST-mode delivery — see Webhooks below).',
     request: PAYMENTS_CREATE_REQUEST,
     requestLabel: 'request body',
     response: PAYMENTS_CREATE_RESPONSE,
@@ -270,6 +270,7 @@ const ENDPOINTS: {
 ]
 
 const EVENT_CHANNELS = [...new Set(DOMAIN_EVENTS.map((e) => e.channel))].sort()
+const EMITTED_COUNT = DOMAIN_EVENTS.filter((e) => e.emitted !== false).length
 
 function DocH2({ id, icon: Icon, children }: { id: string; icon: React.ElementType; children: React.ReactNode }) {
   return (
@@ -416,19 +417,22 @@ export default async function DocsPage() {
       <div className="space-y-3 text-sm leading-relaxed text-muted-foreground">
         <p>
           Register HTTPS endpoints in <Link href="/developers/webhooks" className="text-primary underline-offset-4 hover:underline">Webhooks</Link>{' '}
-          (or via the API). Matching events are POSTed with two headers — a unix timestamp and the HMAC-SHA256
-          signature computed over <code className="rounded bg-muted px-1 font-mono text-xs">{'${timestamp}.${body}'}</code>{' '}
-          with the endpoint secret:
+          (or via the API). Delivery is <strong className="text-foreground">simulated in TEST mode — no HTTP calls
+          are made</strong>: each matching event is recorded as a <code className="rounded bg-muted px-1 font-mono text-xs">WebhookDelivery</code>{' '}
+          row carrying a real HMAC-SHA256 signature computed over{' '}
+          <code className="rounded bg-muted px-1 font-mono text-xs">{'${timestamp}.${body}'}</code>{' '}
+          with the endpoint secret. Retry and dead-letter states are modeled data, not network
+          outcomes. The shape a production delivery will POST to your endpoint:
         </p>
       </div>
       <CodeBlock language="http" code={WEBHOOK_DELIVERY} />
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-3 rounded-lg border p-4 text-sm">
-          <p className="font-medium">Retry policy</p>
+          <p className="font-medium">Retry policy (modeled in TEST mode)</p>
           <ul className="list-disc space-y-1.5 pl-5 text-xs leading-relaxed text-muted-foreground">
-            <li>Failed deliveries retry up to 3 times (30s backoff), then dead-letter as <code className="font-mono">DEAD</code>.</li>
-            <li>Every attempt is recorded — inspect history and replay any delivery from the portal.</li>
-            <li>Respond 2xx quickly; anything else counts as a failure.</li>
+            <li>No HTTP leaves the process: ~90% of deliveries are modeled as first-attempt success; failures model up to 3 attempts (30s backoff), then dead-letter as <code className="font-mono">DEAD</code>.</li>
+            <li>Every attempt is a persisted <code className="font-mono">WebhookDelivery</code> row — inspect history and replay any delivery from the portal (replay re-signs and re-records).</li>
+            <li>Production swaps the simulator for real delivery workers with the same records.</li>
           </ul>
         </div>
         <div className="space-y-3 rounded-lg border p-4 text-sm">
@@ -443,8 +447,10 @@ export default async function DocsPage() {
 
       <h3 className="text-base font-semibold tracking-tight">Event catalog</h3>
       <p className="text-sm text-muted-foreground">
-        {DOMAIN_EVENTS.length} domain events across {EVENT_CHANNELS.length} channels. Subscribe by exact name, or{' '}
-        <code className="rounded bg-muted px-1 font-mono text-xs">*</code> for everything.
+        {DOMAIN_EVENTS.length} domain events across {EVENT_CHANNELS.length} channels — {EMITTED_COUNT} emitted by the
+        reference build today, {DOMAIN_EVENTS.length - EMITTED_COUNT} subscribable but not yet emitted. Subscribe by
+        exact name, or <code className="rounded bg-muted px-1 font-mono text-xs">*</code> for everything (only
+        emitted events produce deliveries).
       </p>
       <div className="space-y-4">
         {EVENT_CHANNELS.map((channel) => (
@@ -457,7 +463,17 @@ export default async function DocsPage() {
                 <div key={e.name} className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(0,220px)_1fr]">
                   <code className="font-mono text-xs text-primary">{e.name}</code>
                   <div className="space-y-1.5">
-                    <p className="text-xs text-muted-foreground">{e.description}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {e.description}
+                      {e.emitted === false && (
+                        <span
+                          className="ml-2 inline-flex items-center rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 font-mono text-[9px] font-semibold tracking-wider text-warning"
+                          title="Not yet emitted by the reference build — subscribing is accepted, but no WebhookDelivery rows are created for this event yet"
+                        >
+                          NOT YET EMITTED
+                        </span>
+                      )}
+                    </p>
                     <div className="flex flex-wrap gap-1">
                       {e.payloadFields.map((f) => (
                         <Badge key={f} variant="outline" className="font-mono text-[9px] text-muted-foreground">{f}</Badge>

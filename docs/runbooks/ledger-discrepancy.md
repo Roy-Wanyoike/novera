@@ -30,7 +30,7 @@ bun scripts/verify-balances.ts
 - Every line must read `debits X credits X → OK` per currency and
   `PASS: no negative wallet balances`.
 - In the console: `/transactions` renders the same trial-balance proof;
-  `/audit` shows hash-chain validity (e.g. *842/842 valid*).
+  `/audit` shows hash-chain validity (e.g. *818/818 valid*).
 
 **If the audit chain is broken** → stop, this is a security incident, switch to
 [security-incident.md](./security-incident.md).

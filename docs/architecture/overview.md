@@ -107,7 +107,7 @@ novera/
 │   ├── policy/                  #   Deterministic fail-closed policy evaluator + guardrails
 │   └── events/                  #   Domain event catalog (webhooks/audit vocabulary)
 ├── prisma/
-│   ├── schema.prisma            # 30-model financial kernel schema (SQLite build)
+│   ├── schema.prisma            # 35-model financial kernel schema (SQLite build)
 │   └── seed.ts                  # Demo data through the real kernel
 ├── src/
 │   ├── lib/                     # KERNEL SERVICES — the execution plane core
@@ -123,7 +123,7 @@ novera/
 │   │   ├── audit.ts             #   sha256 hash chain
 │   │   ├── auth.ts / session.ts #   scrypt passwords, opaque session tokens
 │   │   ├── api-auth.ts          #   Hashed API keys, rate limits, request logs
-│   │   └── webhooks.ts          #   HMAC-SHA256 signing + retries
+│   │   └── webhooks.ts          #   HMAC-SHA256 signing + simulated TEST-mode delivery
 │   ├── app/
 │   │   ├── (app)/               # Operator console (server components + server actions)
 │   │   ├── api/v1/              # Public REST surface (Bearer keys, scoped)

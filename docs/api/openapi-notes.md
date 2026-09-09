@@ -42,7 +42,7 @@ Authorization: Bearer nv_test_…        # or nv_live_…
   |---|---|---|
   | `UNAUTHENTICATED` | 401 | Missing/invalid/revoked Bearer key |
   | `INSUFFICIENT_SCOPE` | 403 | Key lacks all of the endpoint's scopes (lists both sides) |
-  | `RATE_LIMITED` | 429 | Per-key minute bucket exceeded |
+  | `RATE_LIMITED` | 429 | Per-key fixed 60-second window exceeded |
   | `INVALID_ARGUMENT` | 400 | Validation failure (message says which field and why) |
   | `NOT_FOUND` | 404 | Resource doesn't exist *in this organization* |
   | `PAYMENT_ERROR` | 422 | Kernel rejected the operation (e.g. no provider for method, idempotency-key collision across orgs) |
@@ -87,20 +87,55 @@ REVERSED · DISPUTED`.
 
 ## 5. Webhooks (outbound)
 
-Registering an endpoint starts signed event delivery
-([../security/overview.md §5](../security/overview.md#5-webhook-signatures--the-audit-chain)):
+**Delivery is simulated in TEST mode — no HTTP calls are made.** `emitWebhookEvent`
+([`src/lib/webhooks.ts`](../../src/lib/webhooks.ts)) writes a `WebhookDelivery` row
+per matching endpoint and stops there: there is no `fetch`/HTTP client anywhere on
+the delivery path. Retry and dead-letter states are **modeled data**, not observed
+network outcomes. What *is* real:
 
-```
-signature = HMAC-SHA256(endpointSecret, `${unixTimestamp}.${body}`)
-```
+- **Signatures are real.** Each delivery row carries a genuine
+  `HMAC-SHA256(endpointSecret, <unixTimestamp>.<body>)` signature over the exact
+  payload stored on the row — recomputable and verifiable by consumers.
+- **Delivery rows are real records.** Payload, signature, status
+  (`DELIVERED | FAILED | DEAD`), response code, attempt count and
+  `nextAttemptAt` are persisted, inspectable rows in the developer portal.
+- **Replay re-signs.** Replaying a delivery generates a fresh signature with the
+  endpoint secret and updates the row (attempts incremented) — still no HTTP.
+- The simulated outcome is deterministic per delivery body (~90% first-attempt
+  success; failures model 2–3 attempts then `DEAD`) — reproducible, never random.
 
-Body shape: `{ id: "wh_…", event, createdAt, data }`. Event catalog lives in
-[`packages/events/src/index.ts`](../../packages/events/src/index.ts)
-(`payment.settled`, `payment.failed`, `payment.refunded`, `invoice.paid`,
-`agent.intent.executed`, `approval.requested`, `approval.decided`,
-`fx.conversion.executed`, `splitrule.executed`, …). Verify the signature and treat the
-timestamp as a freshness bound. Delivery attempts (with retries and dead-letter) are
-recorded as inspectable/replayable data in the developer portal.
+Body shape: `{ id: "wh_…", event, createdAt, data }`. Verify the signature and treat
+the timestamp as a freshness bound. See
+[../security/overview.md §5](../security/overview.md#5-webhook-signatures--the-audit-chain).
+
+### Event catalog — emitted vs. not yet emitted
+
+The catalog lives in
+[`packages/events/src/index.ts`](../../packages/events/src/index.ts) (23 events).
+Subscribing works for the whole catalog, but only **12** are actually emitted by the
+reference build (each entry carries an `emitted` flag):
+
+Emitted today: `payment.settled`, `payment.failed`, `payment.refunded`,
+`invoice.paid`, `splitrule.executed`, `transfer.executed`,
+`fx.conversion.executed`, `approval.requested`, `approval.decided`,
+`agent.intent.executed`, `card.authorization.approved`,
+`card.authorization.declined`.
+
+**Not yet emitted by the reference build** (subscribable, `emitted: false` — no
+`WebhookDelivery` row will ever be created for them yet):
+`wallet.created`, `payment.created`, `payment.authorized`, `payment.processing`,
+`ledger.transaction.posted`, `ledger.transaction.reversed`, `card.created`,
+`agent.intent.proposed`, `invoice.issued`, `risk.review.created`,
+`reconciliation.mismatch.detected`. (Two of these — `ledger.transaction.posted` /
+`ledger.transaction.reversed` — do exist as *audit* actions, but no webhook
+emission is wired for them.)
+
+### Endpoint management
+
+Endpoints can be **paused and resumed** (`status: ACTIVE ↔ PAUSED`; only `ACTIVE`
+endpoints receive events) and **deleted** (their `WebhookDelivery` rows cascade with
+them). Endpoint management UI/API ships in the parallel frontend PR — the contract
+above is the durable part.
 
 ## 6. Quick smoke test
 

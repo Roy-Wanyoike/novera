@@ -102,8 +102,11 @@ Keys are the machine equivalent of sessions, with the same hashed-at-rest discip
   `apikey.revoked`).
 - **Scopes**: JSON array on the key; each endpoint declares the scopes it accepts
   (ANY-of); mismatch → `403 INSUFFICIENT_SCOPE` listing required vs. key scopes.
-- **Rate limits**: per-key sliding minute bucket, default **120 req/min**
-  (`rateLimitPerMin` per key). Exceeding → `429 RATE_LIMITED` with `Retry-After`
+- **Rate limits**: per-key **fixed 60-second window** (`checkRateLimit` in
+  `api-auth.ts`): the first request opens a 60s bucket, the count resets wholesale
+  when it expires, and each key gets its own in-memory bucket. Default
+  **120 req/min** (`rateLimitPerMin` per key) — this is a fixed window, *not* a
+  sliding/rolling one. Exceeding → `429 RATE_LIMITED` with `Retry-After`
   header, `retryAfterSec` and `resetAt` in the body, and `X-RateLimit-Limit` on every
   authenticated response.
 - **Request logs**: every authenticated outcome (including 429/403/5xx) is written to
@@ -140,7 +143,7 @@ mutation of consequence appends an `AuditEvent` whose `hash = sha256(canonical f
 prevHash)`, and `verifyAuditChain()` recomputes the whole chain to find the first break.
 Mechanics, canonical field list and verification walkthrough live in
 [../architecture/financial-kernel.md §4](../architecture/financial-kernel.md#4-immutability--reversal-only-corrections);
-the `/audit` console page surfaces live validity (e.g. *842/842*).
+the `/audit` console page surfaces live validity (e.g. *818/818*).
 
 ## 6. Red-team checklist
 

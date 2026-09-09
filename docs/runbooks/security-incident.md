@@ -49,7 +49,7 @@ recouping what moved.
 `verifyAuditChain()` recomputes `sha256(prevHash ‖ canonical)` over every `AuditEvent`
 in order and reports `{ totalEvents, verified, valid, firstBrokenAt? }`.
 
-- Console: `/audit` runs it on load and displays validity (e.g. *842/842 valid*).
+- Console: `/audit` runs it on load and displays validity (e.g. *818/818 valid*).
 - The page reports the first broken event when the chain is invalid —
   `firstBrokenAt` is your tampering boundary: everything *before* it is trustworthy,
   everything after is suspect.
