@@ -91,7 +91,7 @@ run — not estimated, not promised.
 **Verify it yourself (≈2 minutes):**
 
 ```bash
-git clone https://github.com/Roy-Wanyoike/novera.git && cd novera
+git clone https://github.com/BLACK23D/novera.git && cd novera
 bun install && bun run db:push
 bun prisma/seed.ts        # watch it print: trial balance OK, 818/818 audit chain OK
 bun run test              # watch 89/89 invariant tests pass
@@ -414,7 +414,7 @@ model ([`src/lib/fx.ts`](src/lib/fx.ts)).
 **Novera — every debit has a credit. Every AI action has a policy gate.
 Every money movement has a story you can reconstruct.**
 
-*Built by [Roy Wanyoike](https://github.com/Roy-Wanyoike). Contributions follow
+*Built by [Denis Kelvin Murithi](https://github.com/BLACK23D). Contributions follow
 [CONTRIBUTING.md](CONTRIBUTING.md).*
 
 </div>
