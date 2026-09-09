@@ -6,6 +6,7 @@ import { db } from '@/lib/db'
 import { ref } from '@/lib/ids'
 import { recordAudit } from '@/lib/audit'
 import { replayDelivery, verifyWebhookSignature } from '@/lib/webhooks'
+import { assertSafeWebhookUrl } from '@/lib/ssrf'
 import { EVENT_NAMES } from '@novera/events'
 
 const VALID_EVENTS = new Set<string>(['*', ...EVENT_NAMES])
@@ -47,6 +48,12 @@ export async function addEndpointAction(input: EndpointRowInput): Promise<AddEnd
   }
   if (description.length > 200) {
     return { ok: false, error: 'Description must be at most 200 characters.' }
+  }
+
+  // SSRF guard — same policy as the API route (fail-closed)
+  const ssrf = await assertSafeWebhookUrl(url)
+  if (!ssrf.ok) {
+    return { ok: false, error: `Webhook URL rejected: ${ssrf.reason}` }
   }
 
   // duplicate guard (same org + url)
@@ -176,7 +183,7 @@ export async function replayDeliveryAction(
     return { ok: false, error: 'Delivery not found in this organization.' }
   }
 
-  const delivered = await replayDelivery(deliveryId)
+  const delivered = await replayDelivery(orgId, deliveryId)
   await recordAudit({
     organizationId: orgId,
     actorType: 'USER',

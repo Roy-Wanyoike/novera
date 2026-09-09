@@ -97,7 +97,9 @@ model Membership {
 model Session {
   id                  String   @id @default(cuid())
   userId              String
-  token               String   @unique
+  // sha256 of the opaque token — the raw token only ever lives in the
+  // httpOnly cookie. A read-only DB leak must not yield replayable sessions.
+  tokenHash           String   @unique
   activeOrganizationId String?
   ip                  String?
   userAgent           String?
@@ -285,6 +287,10 @@ model Payment {
   riskScore         Int?
   ledgerTransactionId String?
   idempotencyKey    String?   @unique
+  // sha256 of the canonical request body that created this payment — an
+  // idempotency-key replay with a DIFFERENT body is rejected (422) instead
+  // of silently returning the original object.
+  idempotencyFingerprint String?
   timeline          String? // JSON [{at, event, detail}] — full transparency trail
   metadata          String? // JSON
   settledAt         DateTime?
@@ -705,7 +711,7 @@ model ApiKey {
   name           String
   mode           String    @default("TEST") // TEST | LIVE
   prefix         String    @unique // nv_test_ / nv_live_ + 8 chars
-  keyHash        String
+  keyHash        String    @unique
   lastFour       String
   scopes         String // JSON array
   rateLimitPerMin Int     @default(120)
@@ -752,6 +758,7 @@ model WebhookEndpoint {
   organization Organization       @relation(fields: [organizationId], references: [id])
   deliveries   WebhookDelivery[]
 
+  @@unique([organizationId, url])
   @@index([organizationId])
 }
 
@@ -829,7 +836,12 @@ model CopilotMessage {
 // ─────────────────────────────────────────────────────────────────────
 
 model AuditEvent {
-  id             String   @id @default(cuid())
+  // Monotonic append sequence — the chain's total order AND primary key.
+  // createdAt has millisecond resolution and ties break deterministic
+  // verification; seq always matches insertion order (SQLite AUTOINCREMENT,
+  // DB-level guarantee — appends are additionally process-serialized).
+  seq            Int      @id @default(autoincrement())
+  id             String   @unique @default(cuid())
   organizationId String?
   actorType      String // USER | AGENT | SYSTEM | SERVICE | PROVIDER
   actorId        String?

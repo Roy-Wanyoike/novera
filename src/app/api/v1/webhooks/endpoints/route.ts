@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { ref } from '@/lib/ids'
 import { recordAudit } from '@/lib/audit'
+import { assertSafeWebhookUrl } from '@/lib/ssrf'
 import { EVENT_NAMES } from '@novera/events'
 import { withApiKey, okJson, errorJson } from '../../_lib/auth'
 import { serializeWebhookEndpoint } from '../../_lib/serialize'
@@ -9,6 +10,12 @@ import { serializeWebhookEndpoint } from '../../_lib/serialize'
 /**
  * Webhook endpoints — GET lists (never returns secrets), POST registers a
  * new endpoint and returns the signing secret exactly once.
+ *
+ * SSRF guard: registered URLs must be public HTTPS endpoints — loopback,
+ * link-local (169.254/16 — cloud metadata), RFC1918, CGNAT, unique-local
+ * IPv6 and hostnames that RESOLVE into private ranges are rejected, and
+ * unresolvable hostnames are rejected fail-closed. Enforced now so the
+ * contract is in place before real HTTP delivery lands.
  * Scope: webhooks:manage
  */
 
@@ -58,6 +65,9 @@ export async function POST(req: NextRequest) {
     if (!events || events.length === 0) {
       return errorJson(400, 'INVALID_ARGUMENT', '"events" must be a non-empty array of event names (use "*" for all).')
     }
+    if (events.length > 20) {
+      return errorJson(400, 'INVALID_ARGUMENT', '"events" must contain at most 20 entries (use "*" for all events).')
+    }
     const unknown = events.filter((e) => !EVENT_NAMES_SET.has(e))
     if (unknown.length > 0) {
       return errorJson(
@@ -68,6 +78,12 @@ export async function POST(req: NextRequest) {
     }
     if (description && description.length > 200) {
       return errorJson(400, 'INVALID_ARGUMENT', '"description" must be at most 200 characters.')
+    }
+
+    // SSRF guard — reject private/loopback/link-local targets fail-closed
+    const ssrf = await assertSafeWebhookUrl(url)
+    if (!ssrf.ok) {
+      return errorJson(422, 'SSRF_GUARD', `Webhook URL rejected: ${ssrf.reason}`)
     }
 
     const secret = ref.webhookSecret()

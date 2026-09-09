@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
 import { recordAudit } from '@/lib/audit'
 import { hashPassword, verifyPassword, sha256Hex, pickAvatarColor } from '@/lib/crypto'
+import { FixedWindowRateLimiter } from '@/lib/rate-limit'
 
 export { hashPassword, verifyPassword, sha256Hex, pickAvatarColor }
 
@@ -12,7 +13,13 @@ export { hashPassword, verifyPassword, sha256Hex, pickAvatarColor }
  * Directive: never trust the frontend. Every server action / route
  * handler resolves the session from the httpOnly cookie and enforces
  * organization scoping on every query. Passwords use scrypt with
- * per-user salts; sessions are opaque tokens with expiry + revocation.
+ * per-user salts; sessions are opaque tokens whose sha256 hash is the
+ * only stored form (a read-only DB leak yields no replayable sessions).
+ *
+ * Login is throttled per email (5 failures / 15 min, in-memory fixed
+ * window) and timing-equalized: an unknown email still runs a full
+ * scrypt verification against a dummy hash so response latency does not
+ * reveal which emails are registered.
  */
 
 const SESSION_COOKIE = 'novera_session'
@@ -44,7 +51,7 @@ export async function createSession(userId: string, activeOrganizationId?: strin
   await db.session.create({
     data: {
       userId,
-      token,
+      tokenHash: sha256Hex(token),
       activeOrganizationId: membership?.organizationId ?? null,
       expiresAt: new Date(Date.now() + SESSION_TTL_MS),
     },
@@ -64,7 +71,7 @@ export async function destroySession(): Promise<void> {
   const store = await cookies()
   const token = store.get(SESSION_COOKIE)?.value
   if (token) {
-    await db.session.updateMany({ where: { token }, data: { revokedAt: new Date() } })
+    await db.session.updateMany({ where: { tokenHash: sha256Hex(token) }, data: { revokedAt: new Date() } })
   }
   store.delete(SESSION_COOKIE)
 }
@@ -76,7 +83,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   if (!token) return null
 
   const session = await db.session.findUnique({
-    where: { token },
+    where: { tokenHash: sha256Hex(token) },
     include: {
       user: {
         select: { id: true, email: true, name: true, avatarColor: true, status: true },
@@ -127,12 +134,17 @@ export async function switchOrganization(sessionId: string, organizationId: stri
   return true
 }
 
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 export async function registerUser(input: {
   name: string
   email: string
   password: string
   organizationName: string
 }) {
+  if (!EMAIL_RE.test(input.email)) {
+    throw new Error('Enter a valid email address.')
+  }
   const existing = await db.user.findUnique({ where: { email: input.email.toLowerCase() } })
   if (existing) throw new Error('An account with this email already exists')
 
@@ -146,14 +158,23 @@ export async function registerUser(input: {
     slug = `${slugBase}-${randomBytes(3).toString('hex')}`
   }
 
-  const user = await db.user.create({
-    data: {
-      email: input.email.toLowerCase(),
-      name: input.name,
-      passwordHash: hashPassword(input.password),
-      avatarColor: pickAvatarColor(input.email),
-    },
-  })
+  let user
+  try {
+    user = await db.user.create({
+      data: {
+        email: input.email.toLowerCase(),
+        name: input.name,
+        passwordHash: hashPassword(input.password),
+        avatarColor: pickAvatarColor(input.email),
+      },
+    })
+  } catch (err) {
+    // concurrent registration race on the unique email — friendly error
+    if ((err as { code?: string }).code === 'P2002') {
+      throw new Error('An account with this email already exists')
+    }
+    throw err
+  }
   const organization = await db.organization.create({
     data: {
       name: input.organizationName,
@@ -178,18 +199,60 @@ export async function registerUser(input: {
   return { user, organization }
 }
 
-export async function loginUser(email: string, password: string) {
-  const user = await db.user.findUnique({ where: { email: email.toLowerCase() } })
-  if (!user || !verifyPassword(password, user.passwordHash)) {
+// ── Login hardening ─────────────────────────────────────────────────
+
+/** 5 failed attempts per email per 15 minutes (in-memory fixed window). */
+const loginThrottle = new FixedWindowRateLimiter(5, 15 * 60_000)
+
+/** Computed once — unknown emails are verified against this hash so the
+ * login path burns the same scrypt work as a real check (anti-enumeration). */
+let dummyHash: string | null = null
+
+export async function loginUser(email: string, password: string): Promise<{
+  id: string
+  email: string
+  name: string
+}> {
+  const normalized = email.trim().toLowerCase()
+  const throttleKey = `login:${normalized}`
+  // failures-only throttle: peek at entry, record on failure, reset on
+  // success — a correct password is never itself counted as a strike
+  const throttle = loginThrottle.peek(throttleKey)
+  if (!throttle.allowed) {
+    const minutes = Math.max(1, Math.ceil(throttle.retryInMs / 60_000))
+    throw new Error(`Too many failed sign-in attempts. Try again in about ${minutes} minute${minutes === 1 ? '' : 's'}.`)
+  }
+
+  const user = await db.user.findUnique({ where: { email: normalized } })
+  if (!user) {
+    // timing-equalization: full scrypt verification against a dummy hash
+    dummyHash ??= hashPassword('novera-dummy-verification-value')
+    verifyPassword(password, dummyHash)
+    loginThrottle.record(throttleKey)
     await recordAudit({
       actorType: 'SYSTEM',
       action: 'auth.login.failed',
       resourceType: 'User',
-      description: `Failed login attempt for ${email}`,
+      description: `Failed login attempt for ${normalized}`,
       severity: 'WARN',
     })
     throw new Error('Invalid email or password')
   }
+  if (!verifyPassword(password, user.passwordHash)) {
+    loginThrottle.record(throttleKey)
+    await recordAudit({
+      actorType: 'SYSTEM',
+      action: 'auth.login.failed',
+      resourceType: 'User',
+      resourceId: user.id,
+      description: `Failed login attempt for ${normalized}`,
+      severity: 'WARN',
+    })
+    throw new Error('Invalid email or password')
+  }
+
+  // successful login clears the email's throttle window
+  loginThrottle.reset(throttleKey)
   await recordAudit({
     actorType: 'USER',
     actorId: user.id,
@@ -202,5 +265,7 @@ export async function loginUser(email: string, password: string) {
   return user
 }
 
-const AVATAR_UNUSED = 0
-void AVATAR_UNUSED
+/** Test seam: clear the in-memory login throttle window for one email. */
+export function __resetLoginThrottleForTests(email: string): void {
+  loginThrottle.reset(`login:${email.trim().toLowerCase()}`)
+}

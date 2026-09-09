@@ -7,8 +7,10 @@ import { ref } from '@/lib/ids'
  * API AUTH — Bearer keys for the public /api/v1 surface.
  *
  * Keys are shown once at creation (prefix + secret). Only the sha256 hash
- * is stored. Every request is logged (redacted) for the developer portal,
- * with a per-key in-memory rate limiter (Redis in production).
+ * is stored (keyHash is @unique — lookups are indexed and race-free).
+ * Every request is logged (deep-redacted) for the developer portal, with
+ * a per-key in-memory rate limiter (Redis in production). Failed key
+ * authentication is appended to the audit trail.
  */
 
 export interface AuthenticatedKey {
@@ -36,10 +38,7 @@ export function extractBearerKey(header: string | null): string | null {
 
 export async function authenticateApiKey(secret: string): Promise<AuthenticatedKey['apiKey'] | null> {
   const hash = sha256Hex(secret)
-  // NOTE (hotfix by agent 1-j): keyHash lacks @unique in the schema, so
-  // findUnique({keyHash}) throws PrismaClientValidationError. findFirst has
-  // identical semantics here; the integrator should add @unique + regenerate.
-  const row = await db.apiKey.findFirst({ where: { keyHash: hash } })
+  const row = await db.apiKey.findUnique({ where: { keyHash: hash } })
   if (!row || row.status !== 'ACTIVE') return null
   return {
     id: row.id,
@@ -48,6 +47,29 @@ export async function authenticateApiKey(secret: string): Promise<AuthenticatedK
     name: row.name,
     scopes: JSON.parse(row.scopes),
   }
+}
+
+const SENSITIVE_KEY_RE = /secret|password|token|key|authorization|credential|cvv|pan/i
+const MAX_REDACT_DEPTH = 4
+
+/**
+ * Deep redaction: secret-ish keys are masked at EVERY nesting level (up to
+ * MAX_REDACT_DEPTH), not just the top level — a request body like
+ * {payment: {metadata: {idempotencyKey: ...}}} must not leak into
+ * ApiRequestLog. Arrays redact element-wise; unknown types are dropped.
+ */
+function redactDeep(value: unknown, depth: number): unknown {
+  if (depth > MAX_REDACT_DEPTH) return '[truncated]'
+  if (Array.isArray(value)) return value.map((v) => redactDeep(v, depth + 1))
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = SENSITIVE_KEY_RE.test(k) ? '***' : redactDeep(v, depth + 1)
+    }
+    return out
+  }
+  if (typeof value === 'string' && value.length > 512) return value.slice(0, 512) + '…'
+  return value
 }
 
 export async function logApiRequest(input: {
@@ -62,11 +84,11 @@ export async function logApiRequest(input: {
 }) {
   let redacted: string | null = null
   if (input.requestBody !== undefined) {
-    const clone: Record<string, unknown> = { ...(input.requestBody as Record<string, unknown>) }
-    for (const k of Object.keys(clone)) {
-      if (/secret|password|token|key/i.test(k)) clone[k] = '***'
+    try {
+      redacted = JSON.stringify(redactDeep(input.requestBody, 0))
+    } catch {
+      redacted = null
     }
-    redacted = JSON.stringify(clone)
   }
   await db.apiRequestLog.create({
     data: {

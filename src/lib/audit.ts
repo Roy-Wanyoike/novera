@@ -77,7 +77,7 @@ async function withAuditAppendLock<T>(fn: () => Promise<T>): Promise<T> {
 
 export async function recordAudit(input: AuditInput): Promise<string> {
   return withAuditAppendLock(async () => {
-    const last = await db.auditEvent.findFirst({ orderBy: { createdAt: 'desc' }, select: { hash: true } })
+    const last = await db.auditEvent.findFirst({ orderBy: { seq: 'desc' }, select: { hash: true } })
     const prevHash = last?.hash ?? 'GENESIS'
     const createdAt = new Date()
     const hash = canonical(input, prevHash, createdAt)
@@ -110,9 +110,14 @@ export interface ChainVerification {
   firstBrokenAt?: string
 }
 
-/** Recompute the chain and report the first inconsistency, if any. */
+/** Recompute the chain and report the first inconsistency, if any.
+ *
+ * Walk order is the monotonic `seq` column (insertion order), NOT
+ * createdAt — millisecond ties would make the walk order ambiguous and
+ * produce false tamper alarms on benign concurrent writes.
+ */
 export async function verifyAuditChain(limit = 2000): Promise<ChainVerification> {
-  const events = await db.auditEvent.findMany({ orderBy: { createdAt: 'asc' }, take: limit })
+  const events = await db.auditEvent.findMany({ orderBy: { seq: 'asc' }, take: limit })
   let prevHash = 'GENESIS'
   let verified = 0
   for (const e of events) {

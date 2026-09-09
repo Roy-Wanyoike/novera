@@ -13,6 +13,7 @@ import { emitWebhookEvent } from '@/lib/webhooks'
 import { recordAudit } from '@/lib/audit'
 import { ref } from '@/lib/ids'
 import { availableBalanceMinor } from '@/lib/transfers'
+import { sha256Hex } from '@/lib/crypto'
 
 /**
  * PAYMENTS — the money movement state machine.
@@ -73,6 +74,37 @@ export interface CreatePaymentInput {
  * Risk runs first (DECLINE → FAILED with reasons, REVIEW → PENDING).
  * Then the rail is engaged; success posts the ledger leg.
  */
+/**
+ * Canonical request fingerprint for idempotency-key replays. A replay of
+ * the same key with a DIFFERENT body is a client bug (or an attack) — the
+ * API answers 422 IDEMPOTENCY_ERROR instead of silently returning the
+ * original object (Stripe-style contract).
+ */
+export function paymentFingerprint(input: {
+  amountMinor: bigint
+  currency: string
+  method: string
+  direction?: 'IN' | 'OUT'
+  customerId?: string | null
+  customerEmail?: string | null
+  description?: string | null
+  invoiceId?: string | null
+  paymentLinkId?: string | null
+}): string {
+  const canonical = JSON.stringify({
+    amountMinor: input.amountMinor.toString(),
+    currency: input.currency,
+    method: input.method,
+    direction: input.direction ?? 'IN',
+    customerId: input.customerId ?? null,
+    customerEmail: input.customerEmail ?? null,
+    description: input.description ?? null,
+    invoiceId: input.invoiceId ?? null,
+    paymentLinkId: input.paymentLinkId ?? null,
+  })
+  return sha256Hex(canonical)
+}
+
 export async function createPayment(input: CreatePaymentInput) {
   if (input.idempotencyKey) {
     const existing = await db.payment.findUnique({
@@ -95,29 +127,45 @@ export async function createPayment(input: CreatePaymentInput) {
         ? (input.amountMinor * BigInt(provider.feeBps)) / 10000n + provider.fixedFeeMinor
         : 0n
 
-  const payment = await db.payment.create({
-    data: {
-      organizationId: input.organizationId,
-      reference: ref.payment(),
-      customerId: input.customerId ?? null,
-      customerName: input.customerName ?? null,
-      customerEmail: input.customerEmail ?? null,
-      amountMinor: input.amountMinor,
-      feeMinor,
-      currency: input.currency,
-      direction: input.direction ?? 'IN',
-      method: input.method,
-      providerId: providerId ?? null,
-      status: 'CREATED',
-      description: input.description ?? null,
-      invoiceId: input.invoiceId ?? null,
-      paymentLinkId: input.paymentLinkId ?? null,
-      idempotencyKey: input.idempotencyKey ?? null,
-      timeline: JSON.stringify([
-        { at: new Date().toISOString(), event: 'created', detail: `Payment intent created via ${input.method}` },
-      ]),
-    },
-  })
+  let payment
+  try {
+    payment = await db.payment.create({
+      data: {
+        organizationId: input.organizationId,
+        reference: ref.payment(),
+        customerId: input.customerId ?? null,
+        customerName: input.customerName ?? null,
+        customerEmail: input.customerEmail ?? null,
+        amountMinor: input.amountMinor,
+        feeMinor,
+        currency: input.currency,
+        direction: input.direction ?? 'IN',
+        method: input.method,
+        providerId: providerId ?? null,
+        status: 'CREATED',
+        description: input.description ?? null,
+        invoiceId: input.invoiceId ?? null,
+        paymentLinkId: input.paymentLinkId ?? null,
+        idempotencyKey: input.idempotencyKey ?? null,
+        idempotencyFingerprint:
+          input.idempotencyKey != null ? paymentFingerprint(input) : null,
+        timeline: JSON.stringify([
+          { at: new Date().toISOString(), event: 'created', detail: `Payment intent created via ${input.method}` },
+        ]),
+      },
+    })
+  } catch (err) {
+    // Concurrent duplicate on the unique idempotencyKey: both requests
+    // passed the pre-check, the second create loses the race — re-read and
+    // return the original (the caller sees a replay, not a 500).
+    if ((err as { code?: string }).code === 'P2002' && input.idempotencyKey) {
+      const existing = await db.payment.findUnique({
+        where: { idempotencyKey: input.idempotencyKey },
+      })
+      if (existing) return existing
+    }
+    throw err
+  }
 
   await recordAudit({
     organizationId: input.organizationId,
@@ -169,8 +217,10 @@ export async function createPayment(input: CreatePaymentInput) {
   await appendTimeline(payment.id, 'authorized', `Authorized after risk ${risk.decision}`)
 
   if (risk.decision === 'REVIEW' || input.forceOutcome === 'PENDING') {
+    // PROCESSING → PENDING through the state machine (no direct status
+    // writes bypassing canTransitionPayment)
     await transition(payment.id, 'PROCESSING')
-    await db.payment.update({ where: { id: payment.id }, data: { status: 'PENDING' } })
+    await transition(payment.id, 'PENDING')
     await appendTimeline(payment.id, 'pending', 'Held for manual review')
     await recordAudit({
       organizationId: input.organizationId,
@@ -185,7 +235,19 @@ export async function createPayment(input: CreatePaymentInput) {
   }
 
   // ── RAIL DISPATCH ──
-  if (!providerId) throw new PaymentError(`no provider available for method ${input.method}`)
+  if (!providerId) {
+    // No provider for the method: fail the payment honestly instead of
+    // leaving it stuck in AUTHORIZED forever (status + timeline + webhook).
+    await transition(payment.id, 'FAILED')
+    await appendTimeline(payment.id, 'failed', `No provider available for method ${input.method}`)
+    await emitWebhookEvent({
+      organizationId: input.organizationId,
+      event: 'payment.failed',
+      paymentId: payment.id,
+      data: { reference: payment.reference, reason: 'no_provider', method: input.method },
+    })
+    return db.payment.findUnique({ where: { id: payment.id } })
+  }
   await transition(payment.id, 'PROCESSING')
   const dispatch = await dispatchToRail({
     providerId,

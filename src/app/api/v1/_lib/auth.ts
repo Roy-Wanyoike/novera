@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { recordAudit } from '@/lib/audit'
 import {
   extractBearerKey,
   authenticateApiKey,
@@ -70,6 +71,16 @@ async function authenticateRequest(req: NextRequest): Promise<AuthResult> {
 
   const key = await authenticateApiKey(secret)
   if (!key) {
+    // Failed key auth is part of the security trail — appended (throttle-free
+    // but bounded by connection cost; the audit chain is append-only).
+    await recordAudit({
+      actorType: 'SYSTEM',
+      action: 'apikey.auth.failed',
+      resourceType: 'ApiKey',
+      description: 'API key authentication failed (invalid or revoked key)',
+      severity: 'WARN',
+      metadata: { path: new URL(req.url).pathname, method: req.method },
+    })
     return {
       ok: false,
       response: errorJson(401, 'UNAUTHENTICATED', 'Invalid or revoked API key.'),

@@ -7,15 +7,20 @@
  *  - The link token is resolved server-side; the organization is taken from
  *    the link row, never from the client.
  *  - For FIXED links the amount is the server-stored amount — client input
- *    for amount is only accepted for CUSTOM/DONATION/TIP links.
+ *    for amount is only accepted for CUSTOM/DONATION/TIP links, and is
+ *    capped server-side (platform ceiling).
+ *  - Submissions are rate-limited per link token + client IP (in-memory
+ *    fixed window) — a public form can be flooded, the kernel cannot.
  *  - Everything runs through createPayment (risk → rail → ledger → webhooks
  *    → audit) — this action adds no money logic of its own.
  */
 
+import { headers } from 'next/headers'
 import { createPayment, PaymentError } from '@/lib/payments'
 import { db } from '@/lib/db'
 import { safeJson } from '@/lib/format'
-import { Money } from '@novera/money'
+import { Money, CURRENCIES } from '@novera/money'
+import { FixedWindowRateLimiter } from '@/lib/rate-limit'
 
 export type CheckoutTimelineEvent = { at: string; event: string; detail: string }
 
@@ -36,7 +41,30 @@ export type CheckoutResult =
 
 const METHODS = new Set(['MPESA', 'BANK', 'CARD', 'USDC'])
 
+/** Public checkout abuse guard: 5 submissions per link token per IP per 10 min. */
+const checkoutLimiter = new FixedWindowRateLimiter(5, 10 * 60_000)
+
+/** Platform ceiling for customer-entered amounts: 1,000,000 major units. */
+const CHECKOUT_MAX_MAJOR = 1_000_000n
+
+async function clientIp(): Promise<string> {
+  const h = await headers()
+  const forwarded = h.get('x-forwarded-for')
+  return forwarded?.split(',')[0]?.trim() || h.get('x-real-ip') || 'unknown'
+}
+
 export async function payLinkAction(token: string, formData: FormData): Promise<CheckoutResult> {
+  // rate-limit FIRST — before any DB work: flooding the form must not
+  // flood payments, risk evaluations, audit events or webhook deliveries
+  const rl = checkoutLimiter.check(`pay:${token}:${await clientIp()}`)
+  if (!rl.allowed) {
+    const minutes = Math.max(1, Math.ceil(rl.retryInMs / 60_000))
+    return {
+      ok: false,
+      error: `Too many payment attempts from this connection. Try again in about ${minutes} minute${minutes === 1 ? '' : 's'}.`,
+    }
+  }
+
   const link = await db.paymentLink.findUnique({ where: { token } })
   if (!link) return { ok: false, error: 'This payment link no longer exists.' }
   if (link.status !== 'ACTIVE') return { ok: false, error: 'This payment link has been archived.' }
@@ -51,7 +79,8 @@ export async function payLinkAction(token: string, formData: FormData): Promise<
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Enter a valid email address.' }
   if (!METHODS.has(method)) return { ok: false, error: 'Choose a payment method.' }
 
-  // Amount: server-stored truth for FIXED links; client-entered otherwise.
+  // Amount: server-stored truth for FIXED links; client-entered otherwise,
+  // capped server-side at the platform ceiling for the link's currency.
   let amountMinor: bigint
   if (link.amountMinor !== null) {
     amountMinor = link.amountMinor
@@ -64,6 +93,14 @@ export async function payLinkAction(token: string, formData: FormData): Promise<
       return {
         ok: false,
         error: `Enter a valid amount in ${link.currency} (up to 6 decimals for USDC, 2 otherwise).`,
+      }
+    }
+    const scale = BigInt(CURRENCIES[link.currency as keyof typeof CURRENCIES]?.minorUnits ?? 2)
+    const ceilingMinor = CHECKOUT_MAX_MAJOR * 10n ** scale
+    if (amountMinor > ceilingMinor) {
+      return {
+        ok: false,
+        error: `The maximum amount for this payment link is ${Money.fromMinor(ceilingMinor, link.currency).format()}.`,
       }
     }
   }

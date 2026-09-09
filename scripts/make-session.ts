@@ -1,5 +1,6 @@
 import { db } from '../src/lib/db'
 import { randomBytes } from 'crypto'
+import { sha256Hex } from '../src/lib/crypto'
 
 async function main() {
   const user = await db.user.findUnique({ where: { email: 'demo@novera.africa' } })
@@ -13,7 +14,8 @@ async function main() {
   await db.session.create({
     data: {
       userId: user.id,
-      token,
+      // sessions store ONLY the sha256 hash; the raw token is printed once
+      tokenHash: sha256Hex(token),
       activeOrganizationId: membership!.organizationId,
       expiresAt: new Date(Date.now() + 3600_000),
     },

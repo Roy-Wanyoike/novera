@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { Money, MoneyError } from '@novera/money'
 import { PAYMENT_STATUSES, PAYMENT_METHODS } from '@novera/domain'
-import { createPayment, PaymentError } from '@/lib/payments'
+import { createPayment, paymentFingerprint, PaymentError } from '@/lib/payments'
 import { withApiKey, okJson, errorJson, parseLimit } from '../_lib/auth'
 import { serializePayment, serializePaymentSummary } from '../_lib/serialize'
 
@@ -126,14 +126,37 @@ export async function POST(req: NextRequest) {
     if (customerEmail && !EMAIL_RE.test(customerEmail)) {
       return errorJson(400, 'INVALID_ARGUMENT', '"customerEmail" must be a valid email address.')
     }
+    if (description && description.length > 500) {
+      return errorJson(400, 'INVALID_ARGUMENT', '"description" must be at most 500 characters.')
+    }
 
-    // Idempotent replay: return the original payment untouched.
+    // Idempotent replay: same key + same body → return the original payment
+    // untouched. Same key + DIFFERENT body → 422 IDEMPOTENCY_ERROR (the
+    // key is bound to the request fingerprint, Stripe-style).
     if (idempotencyKey) {
       const existing = await db.payment.findFirst({
         where: { organizationId: key.organizationId, idempotencyKey },
         include: { provider: true },
       })
       if (existing) {
+        if (existing.idempotencyFingerprint) {
+          const replayFingerprint = paymentFingerprint({
+            amountMinor: money.minor,
+            currency: money.currency,
+            method,
+            direction: 'IN',
+            customerEmail,
+            description,
+          })
+          if (replayFingerprint !== existing.idempotencyFingerprint) {
+            return errorJson(
+              422,
+              'IDEMPOTENCY_ERROR',
+              `This idempotencyKey was already used with a different request body (payment ${existing.reference}). Use a new key for a new request.`,
+              { originalReference: existing.reference }
+            )
+          }
+        }
         return okJson(serializePayment(existing), 200)
       }
     }

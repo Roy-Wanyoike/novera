@@ -71,6 +71,15 @@ function validateEntries(entries: LedgerEntryInput[]): void {
     else bucket.credit += e.amountMinor
     byCurrency.set(currency, bucket)
   }
+  if (byCurrency.size > 1) {
+    // A transaction is single-currency BY DESIGN: the header amountMinor
+    // carries one currency, and the per-currency invariant is only
+    // meaningful within one. Cross-currency movements (FX) post one
+    // balanced transaction per currency — see executeConversion.
+    throw new LedgerError(
+      `a transaction must be single-currency (found ${[...byCurrency.keys()].join(', ')}); post one transaction per currency`
+    )
+  }
   for (const [currency, { debit, credit }] of byCurrency) {
     if (debit !== credit) {
       throw new LedgerError(

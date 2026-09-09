@@ -99,22 +99,28 @@ export async function emitWebhookEvent(input: WebhookEventInput): Promise<number
   return matching.length
 }
 
-/** Manual replay from the developer portal. */
-export async function replayDelivery(deliveryId: string): Promise<boolean> {
-  const delivery = await db.webhookDelivery.findUnique({
-    where: { id: deliveryId },
+/**
+ * Manual replay from the developer portal. Org scoping is enforced inside
+ * the service (the caller's org must own the delivery) — not just in the
+ * caller. The ORIGINAL delivery signature is preserved: a replay is an
+ * operational retry of the same payload, and rewriting the stored
+ * signature would erase the delivery history's cryptographic record.
+ */
+export async function replayDelivery(
+  organizationId: string,
+  deliveryId: string
+): Promise<boolean> {
+  const delivery = await db.webhookDelivery.findFirst({
+    where: { id: deliveryId, organizationId },
     include: { endpoint: true },
   })
   if (!delivery || delivery.endpoint.status !== 'ACTIVE') return false
 
-  const timestamp = Math.floor(Date.now() / 1000)
-  const signature = signPayload(delivery.endpoint.secret, timestamp, delivery.payload)
   const ok = createHmac('sha256', `replay:${deliveryId}`).update(delivery.payload).digest()[0] < 200
 
   await db.webhookDelivery.update({
     where: { id: deliveryId },
     data: {
-      signature,
       status: ok ? 'DELIVERED' : 'FAILED',
       responseCode: ok ? 200 : 500,
       attempts: { increment: 1 },

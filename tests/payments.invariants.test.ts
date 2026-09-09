@@ -12,7 +12,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db'
-import { PaymentError, createPayment, refundPayment, settlePayment } from '@/lib/payments'
+import { PaymentError, createPayment, paymentFingerprint, refundPayment, settlePayment } from '@/lib/payments'
 import { ensureChartOfAccounts, postTransaction, trialBalance, walletLedgerBalance } from '@/lib/ledger'
 import { createTestOrg, createWallet, resetDb, seedTestProvider } from './db-utils'
 
@@ -174,6 +174,51 @@ describe('payments · idempotency (replays never double-charge)', () => {
     expect(await db.ledgerTransaction.count({ where: { organizationId: org.id } })).toBe(1)
     // wallet unchanged by the replay
     expect(await walletLedgerBalance(wallet.walletId)).toBe(walletAfterFirst)
+  })
+})
+
+describe('payments · idempotency fingerprint contract', () => {
+  it('paymentFingerprint is deterministic and body-sensitive', () => {
+    const base = {
+      amountMinor: 100_000n,
+      currency: 'KES',
+      method: 'MPESA',
+      direction: 'IN' as const,
+      customerEmail: 'a@b.c',
+      description: 'same',
+    }
+    expect(paymentFingerprint(base)).toBe(paymentFingerprint({ ...base }))
+    expect(paymentFingerprint(base)).not.toBe(paymentFingerprint({ ...base, amountMinor: 101_000n }))
+    expect(paymentFingerprint(base)).not.toBe(paymentFingerprint({ ...base, description: 'different' }))
+  })
+
+  it('payments created with an idempotency key persist their fingerprint', async () => {
+    const payment = await settleFixture('pay-inv-fingerprint')
+    expect(payment.idempotencyFingerprint).not.toBeNull()
+    const row = await db.payment.findUniqueOrThrow({ where: { id: payment.id } })
+    expect(row.idempotencyFingerprint?.length).toBe(64) // sha256 hex
+  })
+})
+
+describe('payments · no-provider methods fail honestly (never stuck AUTHORIZED)', () => {
+  it('a method with no operational provider → FAILED with reason, no ledger, no crash', async () => {
+    // only MPESA_V1 is seeded; BANK (EQUITY_EFT) has no provider row
+    const payment = await createPayment({
+      organizationId: org.id,
+      amountMinor: GROSS,
+      currency: 'KES',
+      method: 'BANK',
+      forceOutcome: 'SUCCESS',
+      idempotencyKey: 'pay-inv-noprovider',
+    })
+    expect(payment?.status).toBe('FAILED')
+    expect(payment?.failureReason ?? payment?.timeline).toBeTruthy()
+    expect(payment?.ledgerTransactionId).toBeNull()
+    expect(await walletLedgerBalance(wallet.walletId)).toBe(0n)
+    expect((await trialBalance(org.id)).balanced).toBe(true)
+
+    const timeline = JSON.parse(payment?.timeline ?? '[]') as { event: string; detail: string }[]
+    expect(timeline.some((t) => t.event === 'failed' && /No provider available/i.test(t.detail))).toBe(true)
   })
 })
 
