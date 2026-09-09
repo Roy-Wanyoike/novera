@@ -27,8 +27,22 @@ export async function registerAction(formData: FormData): Promise<void> {
   redirect('/dashboard')
 }
 
-export async function demoLoginAction(): Promise<void> {
-  const user = await loginUser('demo@novera.africa', 'novera-demo-2026')
-  await createSession(user.id)
+/**
+ * One-click demo login. Returns an error state (never throws) so the demo
+ * form can render a friendly inline message when the demo org is missing
+ * or the credentials stop matching the seed.
+ */
+export async function demoLoginAction(): Promise<{ error: string | null }> {
+  let userId: string
+  try {
+    const user = await loginUser('demo@novera.africa', 'novera-demo-2026')
+    userId = user.id
+  } catch {
+    return {
+      error:
+        'The demo workspace is unavailable in this environment — it may not be seeded. Create an organization below to explore the product.',
+    }
+  }
+  await createSession(userId)
   redirect('/dashboard')
 }

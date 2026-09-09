@@ -4,8 +4,7 @@ import { getSessionUser } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Hexagon, ShieldCheck, Lock, Zap, Sparkles, ArrowRight } from 'lucide-react'
-import { LoginForm, SubmitButton } from '@/components/marketing/auth-forms'
-import { demoLoginAction } from '../actions'
+import { DemoLoginForm, LoginForm } from '@/components/marketing/auth-forms'
 
 export const metadata = { title: 'Sign in' }
 
@@ -104,16 +103,14 @@ export default async function LoginPage({
                 <Sparkles className="h-4 w-4 text-primary" aria-hidden />
                 No account? Jump straight in.
               </div>
-              <form action={demoLoginAction}>
-                <SubmitButton
-                  variant="outline"
-                  className="w-full h-11 gap-2 border-primary/40 bg-background hover:bg-primary/10 hover:text-primary"
-                  pendingLabel="Loading demo…"
-                >
-                  Enter the interactive demo
-                  <ArrowRight className="h-4 w-4" aria-hidden />
-                </SubmitButton>
-              </form>
+              <DemoLoginForm
+                variant="outline"
+                className="w-full h-11 gap-2 border-primary/40 bg-background hover:bg-primary/10 hover:text-primary"
+                pendingLabel="Loading demo…"
+              >
+                Enter the interactive demo
+                <ArrowRight className="h-4 w-4" aria-hidden />
+              </DemoLoginForm>
               <p className="text-xs leading-relaxed text-muted-foreground">
                 Instant access to the seeded organization: 200 payments through the real kernel,
                 4 AI agents, and a pending approval awaiting a decision.

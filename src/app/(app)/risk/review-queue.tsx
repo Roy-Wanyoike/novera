@@ -13,6 +13,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { MoneyText } from '@/components/novera/money-text'
 import { EmptyState } from '@/components/novera/empty-state'
@@ -44,8 +45,12 @@ export function ReviewQueue({ rows }: { rows: ReviewQueueRow[] }) {
   const [pending, startTransition] = useTransition()
   const [busyId, setBusyId] = useState<string | null>(null)
   const [declineTarget, setDeclineTarget] = useState<ReviewQueueRow | null>(null)
+  const [approveTarget, setApproveTarget] = useState<ReviewQueueRow | null>(null)
 
-  function approve(row: ReviewQueueRow) {
+  function confirmApprove() {
+    const row = approveTarget
+    if (!row) return
+    setApproveTarget(null)
     setBusyId(row.id)
     startTransition(async () => {
       const result = await approveReviewPayment(row.id)
@@ -139,16 +144,49 @@ export function ReviewQueue({ rows }: { rows: ReviewQueueRow[] }) {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button
-                        size="sm"
-                        variant="default"
-                        className="h-8 gap-1.5"
-                        disabled={pending}
-                        onClick={() => approve(row)}
-                      >
-                        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-                        {busy ? 'Working…' : 'Approve & settle'}
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="h-8 gap-1.5"
+                            disabled={pending}
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                            {busy ? 'Working…' : 'Approve & settle'}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Approve and settle this payment?</AlertDialogTitle>
+                            <AlertDialogDescription asChild>
+                              <div className="space-y-3">
+                                <p>
+                                  Payment <span className="font-mono">{row.reference}</span> from{' '}
+                                  {row.customerName} for{' '}
+                                  <MoneyText minor={row.amountMinor} currency={row.currency} strong />{' '}
+                                  is held for manual risk review (score {row.riskScore ?? '—'}).
+                                </p>
+                                <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2.5 text-danger">
+                                  This will post ledger entries and move real funds. The settlement
+                                  is irreversible — a reversal would require a separate, audited
+                                  transaction.
+                                </p>
+                                <p>The decision is written to the tamper-evident audit trail.</p>
+                              </div>
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Keep in queue</AlertDialogCancel>
+                            <AlertDialogAction onClick={(e) => {
+                              e.preventDefault()
+                              confirmApprove()
+                            }}>
+                              Approve &amp; settle
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                       <Button
                         size="sm"
                         variant="outline"
