@@ -259,6 +259,8 @@ returns the original result with **zero new side effects**:
 | Card capture | internal `cardauth:{authId}` | same | same |
 | Agent intent execution | internal `agent-intent:{intentId}` | same | same |
 | FX legs | internal `fx-a:{quoteId}` / `fx-b:{quoteId}` | same | both legs replay independently |
+| Dashboard transfer | client-generated UUID per form submission, carried through `TransferInput.idempotencyKey` | same | original posting returned; no second risk evaluation, audit or webhook |
+| Internal transfer (`executeTransfer`) | optional `idempotencyKey` on `TransferInput` | same | same — resolved before the risk gate and again inside the posting transaction, ahead of the balance guard |
 
 Mechanics: `postTransaction` first does `findUnique({ where: { idempotencyKey } })`
 inside the write transaction and short-circuits on a hit. The `@unique` constraint on
@@ -269,11 +271,21 @@ key chosen by org B that collides with org A's is refused at the API layer
 (`PAYMENT_ERROR: This idempotencyKey is already in use by another resource`) rather than
 leaking another org's record — see [../security/overview.md](../security/overview.md).
 
-Transfers (`TRANSFER`) currently pass `idempotencyKey: null` — they are guarded instead
-by the in-transaction available-balance check, and a UI/API retry with the same input
-produces a *second distinct* transfer. That is a known gap for API parity; any new
-money-moving endpoint must ship with an idempotency key from day one (PR checklist item
-in [../../CONTRIBUTING.md](../../CONTRIBUTING.md)).
+Transfers (`TRANSFER`) accept an optional `idempotencyKey` on `TransferInput` (the ledger kernel
+invariant #4 finally applies end-to-end). `executeTransfer` resolves the key **before** the risk
+gate, the wallet checks and the in-transaction available-balance guard — the original posting
+already moved the money, so a replaying guard would spuriously fail — and returns the original
+posting with zero new side effects. The key is resolved a second time *inside* the posting
+transaction (before the balance guard) to serialize the same-key concurrency race: a concurrent
+duplicate replays instead of being rejected by the guard or double-emitting the audit event and
+webhook. The dashboard transfer dialog generates a UUID per logical form submission and reuses
+it across retries of that submission, so a lost response retried by the user replays the original
+posting rather than double-moving money. A key that collides with another organization's posting
+is refused (`TRANSFER_ERROR: idempotency key already in use by another resource`) — keys are
+globally unique, and a cross-tenant replay is never returned. Callers that pass no key keep the
+legacy behavior: guarded by the in-transaction available-balance check, and a retry posts a
+second, distinct transfer. Any new money-moving endpoint must ship with an idempotency key
+from day one (PR checklist item in [../../CONTRIBUTING.md](../../CONTRIBUTING.md)).
 
 ---
 

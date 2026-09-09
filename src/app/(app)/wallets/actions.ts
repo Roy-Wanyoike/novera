@@ -17,6 +17,9 @@ import { recordAudit } from '@/lib/audit'
  * audited: executeTransfer attributes the acting user inside the ledger
  * posting audit (via services); wallet creation gets an attributed
  * recordAudit here because addWallet's own audit carries no actor id.
+ * Transfers carry an idempotency key generated per form submission by
+ * the transfer dialog, so a retried submission of the SAME transfer
+ * replays the original posting instead of double-moving money.
  */
 
 export type ActionResult = { ok: true; reference?: string } | { ok: false; error: string }
@@ -68,6 +71,8 @@ export interface TransferInputForm {
   toWalletId: string
   amount: string
   note?: string
+  /** Generated per form submission by the dialog; retries replay the original posting. */
+  idempotencyKey?: string
 }
 
 export async function transferFunds(input: TransferInputForm): Promise<ActionResult> {
@@ -107,9 +112,12 @@ export async function transferFunds(input: TransferInputForm): Promise<ActionRes
   }
 
   const note = input.note?.trim() ?? ''
+  const idempotencyKey = input.idempotencyKey?.trim() || undefined
 
   try {
     // The ledger posting (and its audit event) attributes this user as the actor.
+    // The idempotency key makes a retry of the same submission replay the
+    // original posting (executeTransfer resolves it before the balance guard).
     const { txn } = await executeTransfer({
       organizationId: orgId,
       fromWalletId: input.fromWalletId,
@@ -117,6 +125,7 @@ export async function transferFunds(input: TransferInputForm): Promise<ActionRes
       amountMinor,
       currency: from.currency,
       note: note || undefined,
+      idempotencyKey,
       actor: { type: 'USER', id: session.user.id, label: session.user.name },
     })
     revalidatePath('/wallets')

@@ -1,5 +1,5 @@
 import { requireSession } from '@/lib/session'
-import { walletSummary } from '@/lib/transfers'
+import { walletSummary, expireHolds } from '@/lib/transfers'
 import { db } from '@/lib/db'
 import { Money } from '@novera/money'
 import { PageHeader } from '@/components/novera/page-header'
@@ -29,6 +29,12 @@ interface WalletSummaryRow {
 export default async function WalletsPage() {
   const session = await requireSession()
   const orgId = session.organization.id
+
+  // Reconcile past-due hold STATUS before counting active holds (one
+  // updateMany). availableBalanceMinor's expiresAt filter is already
+  // authoritative for the money math; this keeps the status-only count
+  // (reserved-hold KPI below) from inflating reserved funds.
+  await expireHolds(orgId)
 
   const [summariesRaw, activeHolds] = await Promise.all([
     walletSummary(orgId),

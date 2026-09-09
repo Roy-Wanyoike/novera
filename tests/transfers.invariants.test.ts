@@ -159,6 +159,111 @@ describe('transfers · balance guard (fail-closed, in-transaction)', () => {
   })
 })
 
+describe('transfers · idempotency keys', () => {
+  it('same key + same input twice → ONE posting: the replay returns the original with zero new side effects', async () => {
+    await fund(from.accountId, 1_000_000n)
+    const input = {
+      organizationId: org.id,
+      fromWalletId: from.walletId,
+      toWalletId: to.walletId,
+      amountMinor: 400_000n,
+      currency: 'KES',
+      actor: ACTOR,
+      idempotencyKey: 'transfer-replay-1',
+    }
+    const first = await executeTransfer(input)
+    expect(first.replayed).toBe(false)
+    expect(first.risk).not.toBeNull()
+
+    const second = await executeTransfer(input)
+    expect(second.replayed).toBe(true)
+    expect(second.txn.id).toBe(first.txn.id)
+    expect(second.txn.reference).toBe(first.txn.reference)
+    expect(second.risk).toBeNull() // no second risk evaluation
+
+    // one posting, one pair of entries — money moved exactly once
+    expect(await db.ledgerTransaction.count({ where: { organizationId: org.id, source: 'TRANSFER' } })).toBe(1)
+    expect(await db.ledgerEntry.count()).toBe(4) // funding (2) + transfer (2)
+    expect(await walletLedgerBalance(from.walletId)).toBe(600_000n)
+    expect(await walletLedgerBalance(to.walletId)).toBe(400_000n)
+
+    // one risk evaluation, one posting audit — the replay duplicated nothing
+    expect(await db.riskEvaluation.count({ where: { subject: 'TRANSFER' } })).toBe(1)
+    expect(await db.auditEvent.count({ where: { action: 'ledger.transaction.posted' } })).toBe(2)
+  })
+
+  it('a replay short-circuits BEFORE the balance guard — even after the wallet is drained', async () => {
+    await fund(from.accountId, 1_000_000n)
+    const base = {
+      organizationId: org.id,
+      fromWalletId: from.walletId,
+      toWalletId: to.walletId,
+      currency: 'KES',
+      actor: ACTOR,
+    }
+    const first = await executeTransfer({ ...base, amountMinor: 600_000n, idempotencyKey: 'replay-before-guard' })
+    // drain the remaining funds with a different key
+    await executeTransfer({ ...base, amountMinor: 400_000n, idempotencyKey: 'drain-after' })
+
+    // retry of the ORIGINAL submission: available is now 0 — the guard
+    // would throw, but a replay must never be rejected by it
+    const replay = await executeTransfer({ ...base, amountMinor: 600_000n, idempotencyKey: 'replay-before-guard' })
+    expect(replay.replayed).toBe(true)
+    expect(replay.txn.id).toBe(first.txn.id)
+    expect(await walletLedgerBalance(to.walletId)).toBe(1_000_000n) // moved once, not twice
+  })
+
+  it('different keys → distinct postings', async () => {
+    await fund(from.accountId, 1_000_000n)
+    const base = {
+      organizationId: org.id,
+      fromWalletId: from.walletId,
+      toWalletId: to.walletId,
+      amountMinor: 100_000n,
+      currency: 'KES',
+      actor: ACTOR,
+    }
+    const a = await executeTransfer({ ...base, idempotencyKey: 'key-a' })
+    const b = await executeTransfer({ ...base, idempotencyKey: 'key-b' })
+    expect(a.txn.id).not.toBe(b.txn.id)
+    expect(await walletLedgerBalance(from.walletId)).toBe(800_000n)
+    expect(await db.ledgerTransaction.count({ where: { organizationId: org.id, source: 'TRANSFER' } })).toBe(2)
+  })
+
+  it('a key already used by another organization is refused, never replayed cross-tenant', async () => {
+    await fund(from.accountId, 1_000_000n)
+    const foreign = await createTestOrg('Foreign Idem Org')
+    const foreignWallet = await createWallet(foreign.id, 'Foreign', 'KES')
+    const foreignCoa = await ensureChartOfAccounts(foreign.id)
+    await postTransaction({
+      organizationId: foreign.id,
+      description: 'foreign posting',
+      source: 'TRANSFER',
+      idempotencyKey: 'stolen-key',
+      entries: [
+        { accountId: foreignWallet.accountId, direction: 'DEBIT', amountMinor: 100n, currency: 'KES' },
+        { accountId: foreignCoa['OPENING_EQUITY'], direction: 'CREDIT', amountMinor: 100n, currency: 'KES' },
+      ],
+    })
+
+    await expect(
+      executeTransfer({
+        organizationId: org.id,
+        fromWalletId: from.walletId,
+        toWalletId: to.walletId,
+        amountMinor: 100n,
+        currency: 'KES',
+        actor: ACTOR,
+        idempotencyKey: 'stolen-key',
+      })
+    ).rejects.toThrow(/already in use/)
+
+    // nothing was posted for this organization by the refused attempt
+    expect(await db.ledgerTransaction.count({ where: { organizationId: org.id, source: 'TRANSFER' } })).toBe(0)
+    expect(await walletLedgerBalance(from.walletId)).toBe(1_000_000n)
+  })
+})
+
 describe('transfers · input guards', () => {
   it('rejects same-wallet, currency mismatch and zero amounts', async () => {
     await fund(from.accountId, 1_000_000n)

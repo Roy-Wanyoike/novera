@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { requireSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { accountBalance } from '@/lib/ledger'
-import { walletSummary, availableBalanceMinor } from '@/lib/transfers'
+import { walletSummary, availableBalanceMinor, expireHolds } from '@/lib/transfers'
 import { fmtDate, fmtDateTime, truncateMiddle } from '@/lib/format'
 import { WALLET_TYPE_META, LEDGER_TXN_SOURCE_META, type StatusMeta } from '@novera/domain'
 import { PageHeader } from '@/components/novera/page-header'
@@ -56,6 +56,12 @@ export default async function WalletDetailPage({ params }: { params: Promise<{ i
     },
   })
   if (!wallet) notFound()
+
+  // Reconcile past-due hold STATUS before listing/counting holds (one
+  // updateMany). availableBalanceMinor's expiresAt filter is already
+  // authoritative for the money math; this keeps the hold table below
+  // from showing past-due holds as still Active/reserved.
+  await expireHolds(orgId)
 
   const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
   const [summariesRaw, account, holds, activeHoldCount, entries, recent] = await Promise.all([
