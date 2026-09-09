@@ -71,3 +71,9 @@ download/
 # test databases
 db/test.db*
 .agent-tmp/
+
+# untracked local artifacts (agent transcripts, local tooling binaries)
+tool-results/
+mini-services/
+scripts/gh-bin/
+!.env.example
