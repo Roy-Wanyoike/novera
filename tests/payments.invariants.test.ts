@@ -12,8 +12,8 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db'
-import { PaymentError, createPayment, refundPayment } from '@/lib/payments'
-import { ensureChartOfAccounts, trialBalance, walletLedgerBalance } from '@/lib/ledger'
+import { PaymentError, createPayment, refundPayment, settlePayment } from '@/lib/payments'
+import { ensureChartOfAccounts, postTransaction, trialBalance, walletLedgerBalance } from '@/lib/ledger'
 import { createTestOrg, createWallet, resetDb, seedTestProvider } from './db-utils'
 
 let org: { id: string; slug: string }
@@ -174,6 +174,113 @@ describe('payments · idempotency (replays never double-charge)', () => {
     expect(await db.ledgerTransaction.count({ where: { organizationId: org.id } })).toBe(1)
     // wallet unchanged by the replay
     expect(await walletLedgerBalance(wallet.walletId)).toBe(walletAfterFirst)
+  })
+})
+
+describe('payments · payout balance guard (fail-closed)', () => {
+  const payoutFixture = (idempotencyKey: string, amountMinor: bigint) =>
+    createPayment({
+      organizationId: org.id,
+      amountMinor,
+      currency: 'KES',
+      method: 'MPESA',
+      direction: 'OUT',
+      forceOutcome: 'SUCCESS',
+      idempotencyKey,
+      description: 'kernel payout fixture',
+    })
+
+  it('settlePayment of an outbound payment exceeding wallet funds throws and posts nothing', async () => {
+    // payment reaches PENDING (held for review) so settle can be invoked
+    // directly against the kernel
+    const payment = await createPayment({
+      organizationId: org.id,
+      amountMinor: 100_000n,
+      currency: 'KES',
+      method: 'MPESA',
+      direction: 'OUT',
+      forceOutcome: 'PENDING',
+      idempotencyKey: 'pay-inv-payout-direct',
+    })
+    expect(payment?.status).toBe('PENDING')
+
+    const txnsBefore = await db.ledgerTransaction.count({ where: { organizationId: org.id } })
+    await expect(settlePayment(payment!.id)).rejects.toThrow(/insufficient available funds/)
+    // nothing was posted by the refused settlement
+    expect(await db.ledgerTransaction.count({ where: { organizationId: org.id } })).toBe(txnsBefore)
+    expect(await walletLedgerBalance(wallet.walletId)).toBe(0n)
+  })
+
+  it('an outbound payout from a funded wallet settles and reduces the wallet', async () => {
+    await postTransaction({
+      organizationId: org.id,
+      description: 'opening funds',
+      source: 'ADJUSTMENT',
+      idempotencyKey: 'pay-inv-payout-fund',
+      entries: [
+        { accountId: wallet.accountId, direction: 'DEBIT', amountMinor: 500_000n, currency: 'KES' },
+        { accountId: coa['OPENING_EQUITY'], direction: 'CREDIT', amountMinor: 500_000n, currency: 'KES' },
+      ],
+    })
+
+    const payment = await payoutFixture('pay-inv-payout-ok', 100_000n)
+    expect(payment?.status).toBe('SETTLED')
+    expect(payment?.ledgerTransactionId).not.toBeNull()
+
+    // payout entries: Dr PAYOUT_EXPENSE / Cr wallet
+    const entries = await db.ledgerEntry.findMany({ where: { transactionId: payment!.ledgerTransactionId! } })
+    expect(entries.find((e) => e.accountId === coa['PAYOUT_EXPENSE'])?.direction).toBe('DEBIT')
+    expect(entries.find((e) => e.accountId === wallet.accountId)?.direction).toBe('CREDIT')
+    expect(await walletLedgerBalance(wallet.walletId)).toBe(400_000n)
+    expect((await trialBalance(org.id)).balanced).toBe(true)
+  })
+
+  it('an outbound payout from an empty wallet fails honestly (FAILED, nothing posted)', async () => {
+    const payment = await payoutFixture('pay-inv-payout-empty', 100_000n)
+    expect(payment?.status).toBe('FAILED')
+    expect(payment?.failureReason).toMatch(/insufficient available funds/)
+    expect(payment?.ledgerTransactionId).toBeNull()
+    expect(await walletLedgerBalance(wallet.walletId)).toBe(0n)
+    expect((await trialBalance(org.id)).balanced).toBe(true)
+  })
+})
+
+describe('payments · refund replay (a retry never double-counts)', () => {
+  it('calling refundPayment twice with the identical amount → refundedMinor counts it once, one webhook, one timeline event', async () => {
+    // one subscribed endpoint so the single payment.refunded delivery is observable
+    await db.webhookEndpoint.create({
+      data: {
+        organizationId: org.id,
+        url: 'https://example.com/hook',
+        secret: 'whsec_test_invariants',
+        events: JSON.stringify(['*']),
+      },
+    })
+
+    const payment = await settleFixture('pay-inv-refund-replay')
+    const REFUND = 40_000n
+
+    const first = await refundPayment(org.id, payment.id, REFUND)
+    expect(first.refundedMinor).toBe(REFUND)
+
+    // user double-clicks / network retries the SAME refund intent
+    const replay = await refundPayment(org.id, payment.id, REFUND)
+
+    // refundedMinor still reflects ONE movement of REFUND — not 2×
+    expect(replay.refundedMinor).toBe(REFUND)
+    expect(replay.status).toBe('SETTLED')
+
+    // exactly one refund posting, one webhook event, one timeline entry
+    expect(
+      await db.ledgerTransaction.count({ where: { idempotencyKey: `refund:${payment.id}:${REFUND.toString()}` } })
+    ).toBe(1)
+    expect(await db.webhookDelivery.count({ where: { organizationId: org.id, event: 'payment.refunded' } })).toBe(1)
+    const timeline = JSON.parse(replay.timeline ?? '[]') as { event: string }[]
+    expect(timeline.filter((t) => t.event === 'refunded')).toHaveLength(1)
+
+    // a DIFFERENT refund amount on the same payment is a new intent and still works
+    const second = await refundPayment(org.id, payment.id, 30_000n)
+    expect(second.refundedMinor).toBe(REFUND + 30_000n)
   })
 })
 

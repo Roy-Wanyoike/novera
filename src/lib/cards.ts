@@ -1,8 +1,9 @@
 import { db } from '@/lib/db'
-import { postTransaction, ensureChartOfAccounts } from '@/lib/ledger'
+import { postTransaction, ensureChartOfAccounts, walletLedgerBalance, emitLedgerPostedAudit } from '@/lib/ledger'
 import { evaluateRisk } from '@/lib/risk'
 import { recordAudit } from '@/lib/audit'
 import { emitWebhookEvent } from '@/lib/webhooks'
+import { availableBalanceMinor } from '@/lib/transfers'
 
 /**
  * CARD AUTHORIZATION ENGINE
@@ -10,10 +11,19 @@ import { emitWebhookEvent } from '@/lib/webhooks'
  *   Network → Processor → Novera Card Service → Risk → Policy → Ledger
  *
  * Authorization is synchronous and deterministic: controls (limits, MCC,
- * geography, channel toggles) are hard rules; risk adds a score. Approval
- * places a HOLD on the wallet (reserved, not available); capture posts the
- * ledger leg. PAN/CVV are never stored — cards are tokenized (last4 only).
+ * geography, channel toggles, available funds) are hard rules; risk adds a
+ * score. Approval places a HOLD on the wallet (reserved, not available);
+ * capture posts the ledger leg inside a transaction that re-checks the
+ * wallet balance (fail-closed). PAN/CVV are never stored — cards are
+ * tokenized (last4 only).
  */
+
+export class CardError extends Error {
+  constructor(message: string) {
+    super(`[cards] ${message}`)
+    this.name = 'CardError'
+  }
+}
 
 export interface CardAuthInput {
   cardId: string
@@ -53,6 +63,15 @@ export async function authorizeCard(input: CardAuthInput): Promise<CardAuthDecis
   if (card.perTxnLimitMinor) declineIf(input.amountMinor > card.perTxnLimitMinor, 'exceeds per-transaction limit')
   if (card.dailyLimitMinor) declineIf(card.spendTodayMinor + input.amountMinor > card.dailyLimitMinor, 'exceeds daily limit')
   if (card.monthlyLimitMinor) declineIf(card.spendMonthMinor + input.amountMinor > card.monthlyLimitMinor, 'exceeds monthly limit')
+
+  // available funds: authorization reserves real money — an auth against
+  // an empty (or hold-encumbered) wallet is declined, never "approved on
+  // hope". The hold placed below then keeps those funds unavailable to
+  // transfers/FX while the auth is open.
+  if (card.walletId) {
+    const available = await availableBalanceMinor(card.walletId)
+    declineIf(available < input.amountMinor, 'insufficient available funds')
+  }
 
   if (card.mccAllowlist) {
     const allow: string[] = JSON.parse(card.mccAllowlist)
@@ -128,8 +147,25 @@ export async function authorizeCard(input: CardAuthInput): Promise<CardAuthDecis
         lastUsedAt: new Date(),
       },
     })
-    // capture immediately in this reference build (single-phase auth+capture)
-    await captureAuthorization(auth.id)
+    // capture immediately in this reference build (single-phase
+    // auth+capture). Capture failure (e.g. the wallet was drained between
+    // auth and capture) is honest: the authorization stands, the hold
+    // stays ACTIVE, and the failed capture lands in the audit trail.
+    try {
+      await captureAuthorization(auth.id)
+    } catch (err) {
+      await recordAudit({
+        organizationId: card.organizationId,
+        actorType: 'SERVICE',
+        actorLabel: 'Card processor (TEST)',
+        action: 'card.capture.declined',
+        resourceType: 'CardAuthorization',
+        resourceId: auth.id,
+        description: `Capture declined for ${input.merchantName}: ${err instanceof Error ? err.message : 'unknown error'}`,
+        severity: 'WARN',
+        metadata: { authId: auth.id },
+      })
+    }
   }
 
   await recordAudit({
@@ -153,34 +189,58 @@ export async function authorizeCard(input: CardAuthInput): Promise<CardAuthDecis
   return { decision, reason: decline ?? undefined, riskScore: risk.score, rulesChecked, authId: auth.id }
 }
 
-/** Capture an approved authorization: release the hold, post the ledger leg. */
-export async function captureAuthorization(authId: string) {
+/** Capture an approved authorization: release the hold, post the ledger leg.
+ *
+ * The wallet-balance guard and the posting run in ONE transaction — a
+ * capture that would drive the wallet asset negative is refused and
+ * nothing is posted. The hold stays ACTIVE (funds remain reserved) so the
+ * decline is recoverable: retry the capture or let the hold expire.
+ */
+export async function captureAuthorization(
+  authId: string
+): Promise<{ posted: boolean; ledgerTransactionId?: string }> {
   const auth = await db.cardAuthorization.findUnique({
     where: { id: authId },
     include: { card: { include: { wallet: true } } },
   })
-  if (!auth || auth.decision !== 'APPROVED' || auth.ledgerTransactionId) return
+  if (!auth || auth.decision !== 'APPROVED' || auth.ledgerTransactionId) {
+    return { posted: false }
+  }
 
   const wallet = auth.card.wallet
-  if (!wallet) return
+  if (!wallet) return { posted: false }
 
   const hold = await db.hold.findUnique({ where: { reference: `cardauth_${auth.id}` } })
   const coa = await ensureChartOfAccounts(auth.card.organizationId)
 
-  const txn = await postTransaction({
+  const captureInput = {
     organizationId: auth.card.organizationId,
     description: `Card •••• ${auth.card.last4} — ${auth.merchantName}`,
-    source: 'CARD_AUTH',
-    idempotencyKey: `cardauth:${auth.id}`,
-    actorType: 'SERVICE',
+    source: 'CARD_AUTH' as const,
+    idempotencyKey: `cardauth:${auth.id}` as string | null,
+    actorType: 'SERVICE' as const,
+    actorId: null as string | null,
     actorLabel: 'Card processor (TEST)',
     entries: [
       // spend: expense UP (DEBIT), wallet asset DOWN (CREDIT)
-      { accountId: coa['CARD_EXPENSE'], direction: 'DEBIT', amountMinor: auth.amountMinor, currency: auth.currency },
-      { accountId: wallet.ledgerAccountId, direction: 'CREDIT', amountMinor: auth.amountMinor, currency: auth.currency },
+      { accountId: coa['CARD_EXPENSE'], direction: 'DEBIT' as const, amountMinor: auth.amountMinor, currency: auth.currency },
+      { accountId: wallet.ledgerAccountId, direction: 'CREDIT' as const, amountMinor: auth.amountMinor, currency: auth.currency },
     ],
     metadata: { authId: auth.id, mcc: auth.mcc, merchant: auth.merchantName },
+  }
+
+  const txn = await db.$transaction(async (prisma) => {
+    const walletBalance = await walletLedgerBalance(wallet.id, prisma)
+    if (walletBalance < auth.amountMinor) {
+      throw new CardError(
+        `insufficient wallet funds for capture: ${walletBalance} < ${auth.amountMinor} ${auth.currency}`
+      )
+    }
+    return postTransaction(captureInput, prisma)
   })
+
+  // Post-commit audit (chain-integrity contract; see audit.ts).
+  await emitLedgerPostedAudit(captureInput, txn)
 
   if (hold) {
     await db.hold.update({
@@ -193,6 +253,8 @@ export async function captureAuthorization(authId: string) {
     where: { id: auth.id },
     data: { ledgerTransactionId: txn.id },
   })
+
+  return { posted: true, ledgerTransactionId: txn.id }
 }
 
 export function generateCardNumber4(): string {

@@ -4,6 +4,7 @@ import { canTransitionPayment } from '@novera/domain'
 import {
   postTransaction,
   ensureChartOfAccounts,
+  emitLedgerPostedAudit,
   type PostedTransaction,
 } from '@/lib/ledger'
 import { evaluateRisk } from '@/lib/risk'
@@ -11,6 +12,7 @@ import { dispatchToRail, resolveProviderForMethod } from '@/lib/gateway'
 import { emitWebhookEvent } from '@/lib/webhooks'
 import { recordAudit } from '@/lib/audit'
 import { ref } from '@/lib/ids'
+import { availableBalanceMinor } from '@/lib/transfers'
 
 /**
  * PAYMENTS — the money movement state machine.
@@ -220,7 +222,28 @@ export async function createPayment(input: CreatePaymentInput) {
   }
 
   // ── SETTLE: post the ledger leg ──
-  return settlePayment(payment.id, input.actor)
+  try {
+    return await settlePayment(payment.id, input.actor)
+  } catch (err) {
+    // Settlement can fail for real financial reasons (e.g. an outbound
+    // payout with insufficient wallet funds). The payment fails honestly
+    // — FAILED + timeline + webhook — instead of crashing the request.
+    if (err instanceof PaymentError) {
+      await db.payment.update({
+        where: { id: payment.id },
+        data: { status: 'FAILED', failureReason: err.message, failedAt: new Date() },
+      })
+      await appendTimeline(payment.id, 'failed', err.message)
+      await emitWebhookEvent({
+        organizationId: input.organizationId,
+        event: 'payment.failed',
+        paymentId: payment.id,
+        data: { reference: payment.reference, reason: 'settlement_declined', detail: err.message },
+      })
+      return db.payment.findUnique({ where: { id: payment.id } })
+    }
+    throw err
+  }
 }
 
 /** Post balanced entries for a settled collection (or payout). */
@@ -279,20 +302,35 @@ export async function settlePayment(
     } else {
       // Payout: money LEAVES the wallet — asset DOWN (CREDIT wallet),
       // disbursement recognized as expense (DEBIT).
-      ledgerTxn = await postTransaction({
+      //
+      // The available-balance guard and the posting run in ONE transaction:
+      // the wallet cannot be drained below zero by an overdrawing payout
+      // (fail-closed: nothing is posted when funds are insufficient).
+      const payoutInput = {
         organizationId: payment.organizationId,
         description: `${payment.method} payout ${payment.reference}`,
-        source: 'PAYOUT',
-        idempotencyKey: `settle:${payment.id}`,
-        actorType: actor?.type ?? 'SYSTEM',
+        source: 'PAYOUT' as const,
+        idempotencyKey: `settle:${payment.id}` as string | null,
+        actorType: actor?.type ?? 'USER',
         actorId: actor?.id ?? null,
         actorLabel: actor?.label ?? null,
         entries: [
-          { accountId: coa['PAYOUT_EXPENSE'], direction: 'DEBIT', amountMinor: payment.amountMinor, currency: payment.currency },
-          { accountId: targetWallet.ledgerAccountId, direction: 'CREDIT', amountMinor: payment.amountMinor, currency: payment.currency },
+          { accountId: coa['PAYOUT_EXPENSE'], direction: 'DEBIT' as const, amountMinor: payment.amountMinor, currency: payment.currency },
+          { accountId: targetWallet.ledgerAccountId, direction: 'CREDIT' as const, amountMinor: payment.amountMinor, currency: payment.currency },
         ],
         metadata: { paymentRef: payment.reference },
+      }
+      ledgerTxn = await db.$transaction(async (prisma) => {
+        const available = await availableBalanceMinor(targetWallet.id, prisma)
+        if (available < payment.amountMinor) {
+          throw new PaymentError(
+            `insufficient available funds for payout: ${available} < ${payment.amountMinor} ${payment.currency}`
+          )
+        }
+        return postTransaction(payoutInput, prisma)
       })
+      // Post-commit audit (chain-integrity contract; see audit.ts).
+      await emitLedgerPostedAudit(payoutInput, ledgerTxn)
     }
   }
 
@@ -366,6 +404,19 @@ export async function refundPayment(
     throw new PaymentError('refund amount invalid')
   }
 
+  // Idempotent replay short-circuit: a ledger transaction with this exact
+  // refund key already exists → the money already moved exactly once. A
+  // retry must NOT re-add to refundedMinor, re-emit the webhook or append
+  // timeline events — it returns the current payment state.
+  const refundIdemKey = `refund:${payment.id}:${amountMinor.toString()}`
+  const replayed = await db.ledgerTransaction.findUnique({
+    where: { idempotencyKey: refundIdemKey },
+    select: { id: true },
+  })
+  if (replayed) {
+    return db.payment.findUniqueOrThrow({ where: { id: payment.id } })
+  }
+
   const coa = await ensureChartOfAccounts(organizationId)
   const wallets = await db.wallet.findMany({ where: { organizationId } })
   const wallet =
@@ -383,7 +434,7 @@ export async function refundPayment(
     organizationId,
     description: `Refund ${payment.reference}`,
     source: 'REVERSAL',
-    idempotencyKey: `refund:${payment.id}:${amountMinor.toString()}`,
+    idempotencyKey: refundIdemKey,
     actorType: actor?.type ?? 'USER',
     actorId: actor?.id ?? null,
     actorLabel: actor?.label ?? null,

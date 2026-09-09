@@ -1,17 +1,23 @@
 import { db } from '@/lib/db'
 import { Money, CURRENCIES } from '@novera/money'
-import { postTransaction } from '@/lib/ledger'
+import { postTransaction, ensureChartOfAccounts, emitLedgerPostedAudit } from '@/lib/ledger'
 import { recordAudit } from '@/lib/audit'
 import { ref } from '@/lib/ids'
 import { emitWebhookEvent } from '@/lib/webhooks'
+import { availableBalanceMinor } from '@/lib/transfers'
 
 /**
  * FX — quote, lock, convert.
  *
- * Rates are scaled integers (rate × 10^8). A quote is created, then
- * executed with locked-rate ledger entries. Conversions post REAL
- * double entries (Dr destination wallet / Cr source wallet) with the
- * FX gain/loss leg so the trial balance always holds.
+ * Rates are scaled integers (rate × 10^8). A quote is a CONTRACT:
+ * rate + amount + expiry — createFxQuote persists the quoted source
+ * amount and executeConversion settles exactly that amount or refuses.
+ * Conversions post REAL double entries (Dr destination wallet / Cr source
+ * wallet) with the FX gain/loss leg so the trial balance always holds.
+ *
+ * Execution claims the quote atomically (status flip inside the posting
+ * transaction) and enforces the available-balance guard on the source
+ * wallet in the same transaction — no oversized settlement, no TOCTOU.
  *
  * Reference rates in TEST mode are indicative market-style values.
  */
@@ -82,6 +88,8 @@ export async function createFxQuote(input: QuoteInput) {
       rateScaled: executable,
       rateScale: 8,
       spreadBps,
+      // a locked quote is a contract: rate + amount + expiry
+      amountMinor: input.amountMinor,
       status: 'QUOTED',
       expiresAt: new Date(Date.now() + 60 * 1000),
     },
@@ -104,7 +112,14 @@ export interface ConvertInput {
   actor?: { type: 'USER' | 'AGENT' | 'SYSTEM'; id?: string; label?: string }
 }
 
-/** Execute a conversion at the locked quote rate. */
+/** Execute a conversion at the locked quote rate.
+ *
+ * The quote is a contract: the execution amount MUST equal the quoted
+ * source amount (a different amount is refused — a locked rate is not a
+ * licence to settle an arbitrary size). Execution claims the quote and
+ * checks the source wallet's available balance INSIDE the posting
+ * transaction, then posts both legs atomically.
+ */
 export async function executeConversion(input: ConvertInput) {
   const quote = await db.fxQuote.findFirst({
     where: { id: input.quoteId, organizationId: input.organizationId },
@@ -114,6 +129,13 @@ export async function executeConversion(input: ConvertInput) {
   if (quote.expiresAt && quote.expiresAt < new Date()) {
     await db.fxQuote.update({ where: { id: quote.id }, data: { status: 'EXPIRED' } })
     throw new Error('quote expired')
+  }
+
+  // Quote binding: a locked quote settles exactly the quoted amount.
+  if (quote.amountMinor != null && input.amountMinor !== quote.amountMinor) {
+    throw new Error(
+      `quote amount mismatch: quote is for ${quote.amountMinor} ${quote.baseCurrency}, execution requested ${input.amountMinor} — request a fresh quote`
+    )
   }
 
   const [from, to] = await Promise.all([
@@ -134,40 +156,65 @@ export async function executeConversion(input: ConvertInput) {
   // multi-currency FX clearing account — each balances per currency:
   //   Txn A (base):  Dr FX_CLEARING      / Cr source wallet
   //   Txn B (quote): Dr target wallet    / Cr FX_CLEARING
-  const coa = await import('@/lib/ledger').then((m) => m.ensureChartOfAccounts(input.organizationId))
+  const coa = await ensureChartOfAccounts(input.organizationId)
   const fxClearing = coa['FX_CLEARING']
 
-  const txnA = await postTransaction({
+  const outflowInput = {
     organizationId: input.organizationId,
     description: `FX outflow: ${source.format()} @ ${(Number(quote.rateScaled) / 1e8).toFixed(4)}`,
-    source: 'FX_CONVERSION',
-    idempotencyKey: `fx-a:${quote.id}`,
-    actorType: input.actor?.type ?? 'USER',
+    source: 'FX_CONVERSION' as const,
+    idempotencyKey: `fx-a:${quote.id}` as string | null,
+    actorType: (input.actor?.type ?? 'USER') as 'USER' | 'AGENT' | 'SYSTEM',
     actorId: input.actor?.id ?? null,
     actorLabel: input.actor?.label ?? null,
     entries: [
-      { accountId: fxClearing, direction: 'DEBIT', amountMinor: source.minor, currency: quote.baseCurrency },
-      { accountId: from.ledgerAccountId, direction: 'CREDIT', amountMinor: source.minor, currency: quote.baseCurrency },
+      { accountId: fxClearing, direction: 'DEBIT' as const, amountMinor: source.minor, currency: quote.baseCurrency },
+      { accountId: from.ledgerAccountId, direction: 'CREDIT' as const, amountMinor: source.minor, currency: quote.baseCurrency },
     ],
     metadata: { quoteId: quote.id, leg: 'outflow' },
-  })
-
-  const txnB = await postTransaction({
+  }
+  const inflowInput = {
     organizationId: input.organizationId,
     description: `FX inflow: ${target.format()} @ ${(Number(quote.rateScaled) / 1e8).toFixed(4)}`,
-    source: 'FX_CONVERSION',
-    idempotencyKey: `fx-b:${quote.id}`,
-    actorType: input.actor?.type ?? 'USER',
+    source: 'FX_CONVERSION' as const,
+    idempotencyKey: `fx-b:${quote.id}` as string | null,
+    actorType: (input.actor?.type ?? 'USER') as 'USER' | 'AGENT' | 'SYSTEM',
     actorId: input.actor?.id ?? null,
     actorLabel: input.actor?.label ?? null,
     entries: [
-      { accountId: to.ledgerAccountId, direction: 'DEBIT', amountMinor: target.minor, currency: quote.quoteCurrency },
-      { accountId: fxClearing, direction: 'CREDIT', amountMinor: target.minor, currency: quote.quoteCurrency },
+      { accountId: to.ledgerAccountId, direction: 'DEBIT' as const, amountMinor: target.minor, currency: quote.quoteCurrency },
+      { accountId: fxClearing, direction: 'CREDIT' as const, amountMinor: target.minor, currency: quote.quoteCurrency },
     ],
     metadata: { quoteId: quote.id, leg: 'inflow' },
+  }
+
+  // ONE transaction: atomic quote claim + available-balance guard + both
+  // legs. If anything fails (funds, claim race), everything rolls back —
+  // the quote returns to QUOTED and nothing is posted.
+  const { txnA, txnB } = await db.$transaction(async (prisma) => {
+    // atomic claim — exactly one execution per quote
+    const claimed = await prisma.fxQuote.updateMany({
+      where: { id: quote.id, status: 'QUOTED' },
+      data: { status: 'EXECUTED', executedAt: new Date() },
+    })
+    if (claimed.count === 0) throw new Error('quote is already executed')
+
+    // kernel-side available-balance guard on the source wallet
+    const available = await availableBalanceMinor(from.id, prisma)
+    if (available < source.minor) {
+      throw new Error(
+        `insufficient available funds: ${available} < ${source.minor} ${quote.baseCurrency}`
+      )
+    }
+
+    const txnA = await postTransaction(outflowInput, prisma)
+    const txnB = await postTransaction(inflowInput, prisma)
+    return { txnA, txnB }
   })
 
-  await db.fxQuote.update({ where: { id: quote.id }, data: { status: 'EXECUTED', executedAt: new Date() } })
+  // Post-commit audits (chain-integrity contract; see audit.ts).
+  await emitLedgerPostedAudit(outflowInput, txnA)
+  await emitLedgerPostedAudit(inflowInput, txnB)
 
   await recordAudit({
     organizationId: input.organizationId,

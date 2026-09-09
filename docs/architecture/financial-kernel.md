@@ -110,9 +110,17 @@ Notes, because they bite:
 
 - Collections recognize revenue on **gross** and book the fee as an explicit expense
   leg — the two debits sum exactly to the credit.
+- **Payouts are guarded**: the available-balance check and the posting run in one
+  transaction (`settlePayment`, `direction=OUT`) — an overdrawing payout throws
+  `PaymentError` and nothing is posted. `createPayment` converts that into an honest
+  `FAILED` payment (timeline + `payment.failed` webhook) rather than a crash.
 - Fee share on a partial refund is `(feeMinor × refundAmount) / amountMinor` (exact BigInt
   division truncates, `walletLeg = amountMinor − feeShare` absorbs it) so each refund
   posting balances to the unit.
+- **Refund retries are idempotent at the payment level**: `refundPayment` short-circuits
+  when a `refund:{paymentId}:{amountMinor}` posting already exists — the retry returns
+  current payment state without re-counting `refundedMinor`, re-emitting the webhook or
+  appending timeline events.
 - Refunds post **compensating entries** against the same accounts; the original settle
   transaction is untouched (immutability, §4).
 - Fees are charged on collections only: `feeMinor = 0n` for `direction=OUT`.
@@ -128,6 +136,14 @@ Notes, because they bite:
 | Opening balance | `OPENING` | Wallet | `OPENING_EQUITY` | *(supplied by caller)* |
 
 Notes:
+
+- **Every wallet-debit path is guarded in-transaction**: internal transfers, card
+  capture, FX outflow and payout settlement all check available (or ledger) balance
+  through the *transaction client* and post only if funds suffice — see §6.
+- Card authorization additionally declines when the wallet's *available* balance
+  (ledger minus ACTIVE holds) cannot cover the auth — cards never reserve money that
+  does not exist. Capture failure (wallet drained between auth and capture) leaves the
+  authorization APPROVED, the hold ACTIVE, and a `card.capture.declined` audit event.
 
 - **Split allocation is computed against the FULL weight set** — including the share
   that stays in the source wallet — via `Money.allocateBps` (largest-remainder, parts sum
@@ -255,12 +271,20 @@ in [../../CONTRIBUTING.md](../../CONTRIBUTING.md)).
 ## 6. Balance derivation & the trial-balance proof
 
 - `accountBalance(accountId)` — `LedgerEntry.groupBy({ by: ['direction'] })` restricted
-  to `transaction.status = 'POSTED'`; the signed balance is
+  to `transaction.status ∈ {POSTED, REVERSED}` (a reversal's mirrored entries net the
+  original to zero, so derived balances return to pre-post values); the signed balance is
   `normalBalance === 'DEBIT' ? debit − credit : credit − debit`. Positive means the
   account is on its normal side.
 - `walletLedgerBalance(walletId)` — resolves the wallet's ledger account and returns its
-  signed balance. Available balance (transfers, agent execution) is this minus active
-  `Hold` amounts — reserved funds are excluded, *pending settlement is never available*.
+  signed balance. Available balance (transfers, FX execution, card authorization,
+  agent execution) is this minus active `Hold` amounts — reserved funds are excluded,
+  *pending settlement is never available*.
+- **Balance guards run inside the posting transaction.** `accountBalance`,
+  `walletLedgerBalance` and `availableBalanceMinor` accept a Prisma transaction client;
+  every wallet-debit path (transfer, payout settle, FX outflow, card capture) reads the
+  balance through the same client that posts the entries. A concurrent drain between
+  check and post is impossible within the transaction — the check is serialized with
+  the posting, not adjacent to it.
 - `trialBalance(organizationId)` — for each distinct currency among posted entries,
   sum debits and credits, compare; overall `balanced` requires every currency balanced
   **and** total debits = total credits.
@@ -305,7 +329,12 @@ flowchart LR
 
 Rates are **scaled integers** (`rateScaled = rate × 10^8`, `rateScale=8`), never floats.
 Quotes are created (`createFxQuote`, indicative mid-rate minus an 80 bps spread, 60s
-expiry) and executed at the *locked* quoted rate; `convertMinor` is scale-aware across
+expiry) and executed at the *locked* quoted rate. **A quote is a contract:** the quoted
+source amount is persisted on the `FxQuote` row and `executeConversion` refuses any
+execution whose amount differs — a locked rate is not a licence to settle an arbitrary
+size. Execution is atomic: the status claim (`QUOTED → EXECUTED`), the available-balance
+guard on the source wallet and both posting legs run in one transaction; any failure
+rolls back to a still-`QUOTED` quote with nothing posted. `convertMinor` is scale-aware across
 differing minor-unit exponents (KES=2, USDC=6 …) with exact BigInt math and half-up
 rounding. The FX gain/loss account exists in the chart of accounts for production
 valuation adjustments; the reference build's legs are exact at the quoted rate, so the
