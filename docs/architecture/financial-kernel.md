@@ -28,8 +28,9 @@ Three Prisma models carry the entire accounting model:
 
 A **wallet** (`Wallet`) is a 1:1 wrapper around a `LedgerAccount` of type ASSET with
 `normalBalance=DEBIT` — wallet balances shown anywhere in the product are
-`walletLedgerBalance(walletId)`, which is a `groupBy` over that account's posted
-entries. There is no `balance` column anywhere in the schema.
+`walletLedgerBalance(walletId)`, which is a `groupBy` over that account's entries
+(transactions in `POSTED` **or** `REVERSED` status — see §6). There is no `balance`
+column anywhere in the schema.
 
 The seeded system chart of accounts (`SYSTEM_ACCOUNTS` in `ledger.ts`, materialized per
 org by `ensureChartOfAccounts`):
@@ -51,7 +52,8 @@ org by `ensureChartOfAccounts`):
 
 ## 2. The invariant
 
-**Per currency, over all posted transactions: `SUM(debits) === SUM(credits)`. Always.**
+**Per currency, over all transactions on the books (status `POSTED` or `REVERSED`):
+`SUM(debits) === SUM(credits)`. Always.** (Reversals stay in the proof — see §4/§6.)
 
 Enforcement happens twice, by design:
 
@@ -74,8 +76,9 @@ Enforcement happens twice, by design:
    input never reaches the database.
 
 2. **Post-hoc, globally** — `trialBalance(organizationId)` recomputes the proof from
-   stored data: for each distinct currency among posted entries, `groupBy` debits and
-   credits and compare. The result also includes a classic account-level trial balance.
+   stored data: for each distinct currency among entries of `POSTED`/`REVERSED`
+   transactions, `groupBy` debits and credits and compare. The result also
+   includes a classic account-level trial balance.
    The seeded demo data verifies balanced (e.g. KES / USD / USDC legs each
    `debits === credits`); the `/transactions` console page renders this live, and
    `scripts/verify-balances.ts` runs it headlessly.
@@ -184,9 +187,15 @@ deletes `LedgerTransaction`/`LedgerEntry` content. Corrections are new transacti
 3. Creates a new `LedgerTransaction` with `reversalOfId` pointing at the original, a
    mirrored entry set (same accounts, same amounts, directions swapped), description
    `Reversal of {ref}: {reason}`, and `metadata = { reversalOf, reason }`.
-4. Marks the original `REVERSED` (+ `reversedAt`) so it is excluded from balance
-   aggregation (`accountBalance` / `trialBalance` only aggregate entries whose
-   transaction is `POSTED`).
+4. Marks the original `REVERSED` (+ `reversedAt`) as a bookkeeping marker — the
+   original's entries **remain in** balance aggregation. `accountBalance` /
+   `trialBalance` aggregate entries whose transaction status is `POSTED` **or**
+   `REVERSED` (`status ∈ {POSTED, REVERSED}` — see §6). That is deliberate and
+   load-bearing: the reversal's mirrored entries cancel the original to zero only
+   when **both** sides count. Filtering the original out instead would leave the
+   mirror unopposed — every reversal would double-apply and corrupt every derived
+   balance. The status flag tells auditors *which* pair of transactions offsets;
+   it is never a balance filter.
 5. Records a `WARN`-severity audit event (`ledger.transaction.reversed`).
 
 Both sides of the correction remain queryable — an auditor can reconstruct the net
@@ -225,7 +234,7 @@ tamper cascades to the end of the chain.
 recomputes each hash from the stored fields plus the running previous hash, and compares
 both `hash` and `prevHash`. It returns `{ totalEvents, verified, valid, firstBrokenAt? }`.
 The `/audit` console page runs this on load and displays chain validity (e.g.
-*842/842 valid*); the runbooks use it as the post-incident forensic gate
+*818/818 valid*); the runbooks use it as the post-incident forensic gate
 ([../runbooks/security-incident.md](../runbooks/security-incident.md)).
 
 Honest limitations of the reference-build chain: the sequence is ordered by `createdAt`
@@ -336,9 +345,20 @@ size. Execution is atomic: the status claim (`QUOTED → EXECUTED`), the availab
 guard on the source wallet and both posting legs run in one transaction; any failure
 rolls back to a still-`QUOTED` quote with nothing posted. `convertMinor` is scale-aware across
 differing minor-unit exponents (KES=2, USDC=6 …) with exact BigInt math and half-up
-rounding. The FX gain/loss account exists in the chart of accounts for production
-valuation adjustments; the reference build's legs are exact at the quoted rate, so the
-clearing account nets to zero per currency across both legs at the same rate.
+rounding. **The `FX_CLEARING` account does not net to zero — it holds a real FX
+position per currency.** Leg A debits KES into the account while leg B credits USD
+out of it; debits and credits in *different* currencies never cancel within a single
+account, so after a KES→USD conversion `FX_CLEARING` carries a KES debit balance and
+a USD credit balance (long base / short quote). What does hold is the **global
+per-currency proof**: `trialBalance` sums *all* accounts per currency, and across
+all accounts each currency's total debits equal its total credits (§6). The
+position is intentional — the production intent is periodic FX position
+revaluation booked through the `FX_GAIN` account (mark-to-market gains/losses on
+the accumulated per-currency position). The reference build posts both legs
+exact at the quoted rate and never books to `FX_GAIN` — no revaluation is
+performed; the accumulated position simply rides on the books at historical
+rates, and the /transactions trial-balance card keeps proving the *global*
+per-currency identity.
 
 Why two transactions and not one with four entries: a single transaction mixing KES and
 USD entries cannot satisfy the per-currency invariant unless the amounts happen to be

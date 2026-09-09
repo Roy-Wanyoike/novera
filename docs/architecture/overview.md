@@ -107,7 +107,7 @@ novera/
 │   ├── policy/                  #   Deterministic fail-closed policy evaluator + guardrails
 │   └── events/                  #   Domain event catalog (webhooks/audit vocabulary)
 ├── prisma/
-│   ├── schema.prisma            # 30-model financial kernel schema (SQLite build)
+│   ├── schema.prisma            # 35-model financial kernel schema (SQLite build)
 │   └── seed.ts                  # Demo data through the real kernel
 ├── src/
 │   ├── lib/                     # KERNEL SERVICES — the execution plane core

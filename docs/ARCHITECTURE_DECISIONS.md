@@ -178,10 +178,16 @@ idempotency key.
 the reference build books actual flows.
 
 **Consequences.** (+) Per-currency invariant stays local and provable after every
-conversion; the clearing account explains the bridge and nets to zero per currency at
-a consistent rate. (−) Two rows per conversion (UI groups them via the shared quote);
-FX gain/loss beyond rounding needs the `FX_GAIN` account at valuation time
-(production concern; documented in [financial-kernel.md §7](architecture/financial-kernel.md)).
+conversion; the clearing account explains the bridge. (−) Two rows per conversion
+(UI groups them via the shared quote); **`FX_CLEARING` holds a real FX position per
+currency** — the base leg debits one currency and the quote leg credits another,
+and different currencies never net within a single account, so the account
+accumulates per-currency balances (long base / short quote). Only the *global*
+per-currency trial-balance proof — summed across all accounts — nets each
+currency to zero. Production closes the gap with periodic FX position
+revaluation booked through the `FX_GAIN` account (production concern; documented
+in [financial-kernel.md §7](architecture/financial-kernel.md)); the reference
+build books both legs exact at the quoted rate and does not revalue.
 
 ---
 
@@ -204,7 +210,7 @@ hash(n) = sha256( canonical(event n) ‖ prevHash(n-1) )   // prev of the first 
 The canonical form covers org, action, resource, actor, severity, correlation id,
 metadata and timestamp. `verifyAuditChain()` recomputes the chain and reports
 `firstBrokenAt` — everything before the break is trustworthy, everything after is
-suspect. The `/audit` console page runs verification live (e.g. *842/842 valid*), and
+suspect. The `/audit` console page runs verification live (e.g. *818/818 valid*), and
 the security-incident runbook treats a break as the incident itself.
 
 **Consequences.** (+) Tamper-evidence with zero infra; retroactive edits cascade and
@@ -265,7 +271,12 @@ application code**. Corrections are new transactions:
 
 - `reverseTransaction(org, txnId, reason, actor)` creates a mirrored posting (same
   accounts/amounts, directions swapped) linked by `reversalOfId`, and marks the
-  original `REVERSED` so balance aggregation excludes it.
+  original `REVERSED` as a bookkeeping marker. Balance aggregation
+  (`accountBalance` / `trialBalance`) counts entries from transactions in status
+  `POSTED` **and** `REVERSED` — both sides must count for the mirrored entries to
+  cancel the original to zero. Excluding the original would double-apply every
+  reversal and corrupt derived balances (see
+  [financial-kernel.md §6](architecture/financial-kernel.md)).
 - Exactly **one reversal per transaction** — double-reversal is refused.
 - Only `POSTED` transactions can be reversed.
 - Refunds follow the same philosophy: compensating entries against the original

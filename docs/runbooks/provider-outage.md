@@ -28,8 +28,12 @@ console: `/payments` (filter: status), `/risk` (review queue), `/reconciliation`
 
 - **Routing is health-aware**: `routeProvider` only considers `status=OPERATIONAL`
   providers (`mode=TEST`) and ranks them by `successRateBps / (latencyMsAvg/100)`,
-  returning an explainable rationale. With one provider down, traffic falls to the next
-  operational provider on that rail (e.g. `CARD_MC` behind `CARD_VISA`).
+  returning an explainable rationale. When a rail has multiple operational
+  providers, traffic falls to the next-best one. Note: the seeded chart has
+  exactly one provider per rail (§2 of provider-rails.md), so in the reference
+  build a `DOWN` provider leaves *no* operational candidate — `routeProvider`
+  returns *"no operational provider for this rail"* and payments on that method
+  fail honestly until the provider is restored or a second one is seeded.
 - **Risk gates before rails**: `createPayment` runs `evaluateRisk` *before* dispatch;
   `DECLINE` fails fast with reasons, `REVIEW` parks the payment as `PENDING` in the
   manual queue (`/risk`) instead of burning a rail submission.
@@ -62,8 +66,10 @@ console: `/payments` (filter: status), `/risk` (review queue), `/reconciliation`
 - Re-run the reconciliation scan (`/reconciliation`) — expect `STATUS_MISMATCH` /
   `LATE_SETTLEMENT` cases for the outage window; resolve each with a note (see
   [ledger-discrepancy.md §3-4](./ledger-discrepancy.md)).
-- Review `/developers/webhooks` delivery records: retry or replay `DEAD`/`FAILED`
-  deliveries for `payment.settled`/`payment.failed` events the outage straddled.
+- Review `/developers/webhooks` delivery records and **replay** `DEAD`/`FAILED`
+  deliveries for `payment.settled`/`payment.failed` events the outage straddled
+  (delivery is simulated in this TEST-mode build — replay re-signs and re-records
+  the delivery row; no HTTP leaves the process).
 - Post-incident: note actual failure rates in the provider record (`successRateBps`)
    so routing scores reflect reality.
 

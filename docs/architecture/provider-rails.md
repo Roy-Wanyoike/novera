@@ -46,16 +46,22 @@ the provider's version of events is *data we keep*, never the truth we defer to.
 
 ## 2. Deterministic TEST sandbox providers
 
-The seeded rails (`RailProvider`, all `mode=TEST`):
+The seeded rails (`RailProvider`, all `mode=TEST` — exactly the five rows that
+`prisma/seed.ts` creates, one per rail):
 
 | Code | Rail | Method it serves | Notes |
 |---|---|---|---|
 | `MPESA_V1` | MOBILE_MONEY | MPESA | M-Pesa STK-push style simulator |
 | `EQUITY_EFT` | BANK | BANK | Bank EFT simulator |
 | `CARD_VISA` | CARD | CARD | Card processor simulator |
-| `CARD_MC` | CARD | — | secondary card rail (routing candidate) |
 | `USDC_BASE` | CRYPTO | USDC | USDC transfer simulator |
 | `NOVERA_INTERNAL` | INTERNAL | WALLET | internal wallet rail |
+
+Because the seed provisions exactly one provider per rail, health-aware fallback
+(§3) has no second candidate to fall to until you seed one — a `DOWN` provider on
+a single-provider rail means `routeProvider` returns *"no operational provider for
+this rail"* and the rail's payments fail honestly. Multi-provider rails are
+supported by the router, not exercised by the seed.
 
 Determinism — same input, same outcome, no randomness in the money path:
 
@@ -90,8 +96,9 @@ Two layers, both explainable:
    ```
 
    rank descending, pick the best, and return a human-readable rationale, e.g.
-   *"CardVisa: success 98.9% / ~420ms — best operational score for CARD"*. Routing
-   decisions are never opaque — the rationale string is rendered in the operator UI.
+   *"Visa via processor (sandbox): success 97.4% / ~640ms — best operational score
+   for CARD"*. Routing decisions are never opaque — the rationale string is rendered
+   in the operator UI.
 
 Fees are part of the provider record (`feeBps`, `fixedFeeMinor`) and are charged on
 collections only: `feeMinor = (amountMinor × feeBps) / 10000 + fixedFeeMinor` — exact
