@@ -54,8 +54,8 @@ tamper-evident hash-chained audit trail that a regulator or auditor can recomput
 independently. That boundary is the product.
 
 **The proof.** This is not slideware. The repo contains a working reference build:
-200 seeded payments flow through the *real* kernel services, 89 invariant tests
-pass in CI, the audit chain (818 events) verifies end-to-end, and a live,
+200 seeded payments flow through the *real* kernel services, 153 invariant tests
+pass, the audit chain (818 events) verifies end-to-end, and a live,
 key-authenticated REST API with idempotent semantics and HMAC-signed webhooks is
 curl-able in one command. **Verify every claim yourself — the commands are below.**
 
@@ -82,11 +82,11 @@ run — not estimated, not promised.
 |---|---|
 | Double-entry invariant holds | Trial balance balances **exactly** across all 3 currencies: KES 4,568,633.60 = 4,568,633.60 · USD · USDC |
 | Audit trail is tamper-evident | **818/818** events re-verify against the sha256 hash chain |
-| Kernel invariant tests | **89/89 passing** — money (30) · policy (18) · ledger (20) · FX (14) · payments (7) |
+| Kernel invariant tests | **153/153 passing** — money (30) · policy (18) · ledger (24) · FX (20) · payments (14) · transfers (11) · cards (4) · holds (5) · agents (6) · recon (4) · security (10) · SSRF (7) |
 | The seed *is* an integration test | 200 payments · 367 ledger transactions · 1,085 ledger entries · 209 risk evaluations · 16 reconciliation cases — all driven through the real kernel services |
 | Real product surface | 19 dashboard areas · hosted checkout · 8 REST API groups + OpenAPI document |
 | Domain model | **35 Prisma models** — ledger, payments, cards, agents, policies, webhooks, recon |
-| Engineering discipline | 8 ADRs · 4 architecture docs · 3 operator runbooks · security overview · CI gates on every PR |
+| Engineering discipline | 9 ADRs · 4 architecture docs · 3 operator runbooks · security overview · CI gates on every PR |
 
 **Verify it yourself (≈2 minutes):**
 
@@ -94,7 +94,7 @@ run — not estimated, not promised.
 git clone https://github.com/Roy-Wanyoike/novera.git && cd novera
 bun install && bun run db:push
 bun prisma/seed.ts        # watch it print: trial balance OK, 818/818 audit chain OK
-bun run test              # watch 89/89 invariant tests pass
+bun run test              # watch 153/153 invariant tests pass
 ```
 
 The seed script doesn't insert rows — it *executes* payments, splits, card
@@ -291,7 +291,7 @@ delivery records exercising exactly that lifecycle. Live OpenAPI document:
 │       ├── pay/[token]/ # public hosted checkout
 │       └── api/v1/      # public REST API (8 groups + OpenAPI)
 ├── prisma/              # schema (35 models) + kernel-driven deterministic seed
-├── tests/               # 89 invariant tests (vitest)
+├── tests/               # 153 invariant tests (vitest)
 ├── docs/                # architecture, security, runbooks, ADRs, API notes
 └── .github/workflows/   # CI: typecheck → lint → db push → invariant tests
 ```
@@ -355,11 +355,11 @@ README's word for anything — this is the fastest way to evaluate the claim
 
 | Minutes | Do this | What it proves |
 |---|---|---|
-| 2 | Read [`docs/ARCHITECTURE_DECISIONS.md`](docs/ARCHITECTURE_DECISIONS.md) — 8 ADRs | Decisions are documented with consequences, not vibes |
+| 2 | Read [`docs/ARCHITECTURE_DECISIONS.md`](docs/ARCHITECTURE_DECISIONS.md) — 9 ADRs | Decisions are documented with consequences, not vibes |
 | 3 | Read [`packages/money/src/index.ts`](packages/money/src/index.ts) | Float-free money, exact allocation, currency guards |
 | 3 | Read [`src/lib/audit.ts`](src/lib/audit.ts) | Hash-chained, append-only, independently recomputable audit |
 | 3 | Read [`packages/policy/src/index.ts`](packages/policy/src/index.ts) | Fail-closed deterministic policy DSL with unknown-input rejection |
-| 4 | `bun run test` and `bun prisma/seed.ts` | 89/89 invariants + trial balance + 818/818 audit chain — live |
+| 4 | `bun run test` and `bun prisma/seed.ts` | 153/153 invariants + trial balance + 818/818 audit chain — live |
 
 If you're evaluating *engineering judgment*, the most honest artifact in this
 repo is [ADR-0001](docs/ARCHITECTURE_DECISIONS.md): choosing SQLite for the
@@ -401,7 +401,7 @@ model ([`src/lib/fx.ts`](src/lib/fx.ts)).
 
 - `bunx tsc --noEmit` — zero type errors
 - `bun run lint` — clean
-- `bun run test` — **89/89 invariant tests green**
+- `bun run test` — **153/153 invariant tests green**
 - Seed-verified: per-currency trial balance, audit hash chain (818/818),
   non-negative balances
 - Server-side authorization everywhere; every query org-scoped (IDOR-safe);
