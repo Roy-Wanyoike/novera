@@ -8,7 +8,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '@/lib/db'
-import { ensureChartOfAccounts, postTransaction, trialBalance, walletLedgerBalance } from '@/lib/ledger'
+import { ensureChartOfAccounts, postTransaction, trialBalance, walletBalancesForOrg, walletLedgerBalance } from '@/lib/ledger'
 import { TransferError, availableBalanceMinor, executeTransfer } from '@/lib/transfers'
 import { createTestOrg, createWallet, resetDb } from './db-utils'
 
@@ -261,6 +261,29 @@ describe('transfers · idempotency keys', () => {
     // nothing was posted for this organization by the refused attempt
     expect(await db.ledgerTransaction.count({ where: { organizationId: org.id, source: 'TRANSFER' } })).toBe(0)
     expect(await walletLedgerBalance(from.walletId)).toBe(1_000_000n)
+  })
+})
+
+describe('transfers · batch balance derivation (no N+1)', () => {
+  it('walletBalancesForOrg equals per-wallet walletLedgerBalance for every wallet', async () => {
+    await fund(from.accountId, 1_000_000n)
+    await fund(usd.accountId, 250n, 'USD')
+    await executeTransfer({
+      organizationId: org.id,
+      fromWalletId: from.walletId,
+      toWalletId: to.walletId,
+      amountMinor: 400_000n,
+      currency: 'KES',
+      actor: ACTOR,
+    })
+
+    const batch = await walletBalancesForOrg(org.id)
+    expect(batch.get(from.walletId)).toBe(await walletLedgerBalance(from.walletId))
+    expect(batch.get(to.walletId)).toBe(await walletLedgerBalance(to.walletId))
+    expect(batch.get(usd.walletId)).toBe(await walletLedgerBalance(usd.walletId))
+    expect(batch.get(from.walletId)).toBe(600_000n)
+    expect(batch.get(to.walletId)).toBe(400_000n)
+    expect(batch.get(usd.walletId)).toBe(250n)
   })
 })
 

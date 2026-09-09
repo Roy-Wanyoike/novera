@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { Money, assertCurrency } from '@novera/money'
-import { postTransaction, walletLedgerBalance, emitLedgerPostedAudit, type PostedTransaction } from '@/lib/ledger'
+import { postTransaction, walletLedgerBalance, walletBalancesForOrg, emitLedgerPostedAudit, type PostedTransaction } from '@/lib/ledger'
 import { evaluateRisk, type RiskResult } from '@/lib/risk'
 import { recordAudit } from '@/lib/audit'
 import { emitWebhookEvent } from '@/lib/webhooks'
@@ -235,6 +235,21 @@ export async function walletSummary(organizationId: string) {
     where: { organizationId },
     orderBy: [{ type: 'asc' }, { label: 'asc' }],
   })
+  // ONE grouped balance query + ONE hold query for the whole org — no
+  // per-wallet N+1 (balance math stays derived-from-entries only)
+  const balances = await walletBalancesForOrg(organizationId)
+  const holds = await db.hold.findMany({
+    where: {
+      organizationId,
+      status: 'ACTIVE',
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    },
+    select: { walletId: true, amountMinor: true },
+  })
+  const reservedByWallet = new Map<string, bigint>()
+  for (const h of holds) {
+    reservedByWallet.set(h.walletId, (reservedByWallet.get(h.walletId) ?? 0n) + h.amountMinor)
+  }
   const out: {
     id: string
     label: string
@@ -251,13 +266,14 @@ export async function walletSummary(organizationId: string) {
     updatedAt: Date
   }[] = []
   for (const w of wallets) {
-    const ledger = await walletLedgerBalance(w.id)
-    const available = await availableBalanceMinor(w.id)
+    const ledger = balances.get(w.id) ?? 0n
+    const reserved = reservedByWallet.get(w.id) ?? 0n
+    const available = ledger - reserved
     out.push({
       ...w,
       ledgerBalanceMinor: ledger,
       availableMinor: available,
-      reservedMinor: ledger - available,
+      reservedMinor: reserved,
       formatted: Money.fromMinor(ledger, w.currency).format(),
     })
   }

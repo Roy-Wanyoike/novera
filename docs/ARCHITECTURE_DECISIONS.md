@@ -293,6 +293,13 @@ compensating pairs (intentional — that *is* the audit story); reversal is all-
 per transaction, so partial corrections post their own compensating legs (as refunds
 do).
 
+**Seed-data note (demo narrative vs. ledger truth).** `prisma/seed-helpers.ts`
+backdates non-financial timestamps (payment `createdAt`, timeline entries) so the
+demo org renders ~90 days of history; **amounts, directions, accounts and the
+audit-chain canonical fields are never rewritten** — the ledger itself stays pure
+append-only. Backdated rows exist only in the seed's demo dataset, never in the
+application's write path.
+
 ---
 
 ## ADR-0009: Audit-chain append serialization

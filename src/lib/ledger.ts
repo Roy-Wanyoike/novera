@@ -362,6 +362,45 @@ export async function walletLedgerBalance(
 }
 
 /**
+ * Ledger-derived balance for EVERY wallet of an organization in ONE grouped
+ * query (per account) + ONE hold query — replaces the per-wallet N+1 loop
+ * (find wallet → groupBy entries) that list surfaces used to run. Balances
+ * are still derived from entries only; nothing is cached.
+ */
+export async function walletBalancesForOrg(
+  organizationId: string
+): Promise<Map<string, bigint>> {
+  const accounts = await db.ledgerAccount.findMany({
+    where: { organizationId, wallet: { isNot: null } },
+    select: { id: true, normalBalance: true, wallet: { select: { id: true } } },
+  })
+  const grouped = await db.ledgerEntry.groupBy({
+    by: ['accountId', 'direction'],
+    where: {
+      accountId: { in: accounts.map((a) => a.id) },
+      transaction: { status: { in: ['POSTED', 'REVERSED'] } },
+    },
+    _sum: { amountMinor: true },
+  })
+  const balances = new Map<string, bigint>()
+  for (const account of accounts) {
+    const walletId = account.wallet!.id
+    let debit = 0n
+    let credit = 0n
+    for (const g of grouped) {
+      if (g.accountId !== account.id) continue
+      if (g.direction === 'DEBIT') debit = g._sum.amountMinor ?? 0n
+      else credit = g._sum.amountMinor ?? 0n
+    }
+    balances.set(
+      walletId,
+      account.normalBalance === 'DEBIT' ? debit - credit : credit - debit
+    )
+  }
+  return balances
+}
+
+/**
  * Trial balance: the global double-entry proof, evaluated per currency.
  * Every transaction balances per currency, so the sum of all posted
  * debits must equal the sum of all posted credits for each currency.
